@@ -3,7 +3,7 @@
 ## Week 1: Core Functionality & Risk Analysis
 
 ### Days 1-2: Enhanced Market Regime Detection
-- Implement Hidden Markov Model (HMM) for regime detection
+- Implement Hidden Markov Model (HMM) for regime detection ✅
 - Add trend detection using technical indicators
 - Integrate with existing volatility-based classification
 
