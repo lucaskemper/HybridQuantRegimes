@@ -47,8 +47,8 @@ setup(
             'pre-commit>=2.17.0',
         ]
     },
-    author="Lucas",
-    author_email="your.email@example.com",
+    author="....",
+    author_email="....",
     description="A sophisticated trading strategy system with Monte Carlo simulation",
     keywords="trading, monte-carlo, financial-analysis, risk-management",
     python_requires=">=3.8",
