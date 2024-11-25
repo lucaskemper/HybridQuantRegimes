@@ -4,7 +4,7 @@
 
 ### Days 1-2: Enhanced Market Regime Detection
 - Implement Hidden Markov Model (HMM) for regime detection ✅
-- Add trend detection using technical indicators
+- Add trend detection using technical indicators (Hard)
 - Integrate with existing volatility-based classification
 
 ### Days 3-4: Monte Carlo Simulation Enhancement
