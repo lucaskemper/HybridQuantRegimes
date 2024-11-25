@@ -1,4 +1,48 @@
 # Quantitative Portfolio Risk Analysis System: A Framework for Market Regime Detection and Risk Assessment in Semiconductor Equities
+## Setup Guide
+
+### Prerequisites
+- Python 3.8+
+- pip (Python package installer)
+- Git (optional)
+
+### Installation
+
+#### 1. Basic Installation
+```bash
+# Clone repository
+git clone <repository-url>
+cd <repository-directory>
+
+# Create and activate virtual environment
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+# macOS/Linux
+source venv/bin/activate
+
+# Install package
+pip install -e .
+```
+
+#### 2. Development Setup
+```bash
+# Install with development dependencies
+pip install -e ".[dev]"
+```
+
+### Configuration
+The system requires configuration of risk parameters and portfolio settings. See `config.yml` for customization options.
+
+### Validation
+```bash
+# Run test suite
+pytest tests/
+
+# Run type checking
+mypy src/
+```
 
 ## Abstract
 This research presents a comprehensive quantitative framework for analyzing portfolio risk in the semiconductor sector, with particular emphasis on regime detection methodologies and Monte Carlo simulations incorporating heavy-tailed distributions. The system implements sophisticated statistical approaches for risk assessment, including Value at Risk (VaR) and Expected Shortfall (ES) calculations, while accounting for regime-dependent volatility dynamics.
@@ -110,8 +154,8 @@ results = risk_manager.analyze_portfolio(market_data)
 3. Bollerslev, T. (1986). "Generalized Autoregressive Conditional Heteroskedasticity." *Journal of Econometrics*, 31(3), 307-327. https://doi.org/10.1016/0304-4076(86)90063-1
 
 ## Authors and Institutional Affiliation
-- **Lucas Kemper** - MscF, HEC Lausanne 
-- **Antonio Schoeffel** - MscF, HEC Lausanne
+- **Lucas Kemper** - Department of Finance, HEC Lausanne - [ORCID](https://orcid.org/0000-0000-0000-0000)
+- **Antonio Schoeffel** - Department of Finance, HEC Lausanne - [ORCID](https://orcid.org/0000-0000-0000-0000)
 
 ## License and Distribution
 This research implementation is distributed under the MIT License - see [LICENSE.md](LICENSE.md)
