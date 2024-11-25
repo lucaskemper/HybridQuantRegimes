@@ -1,4 +1,4 @@
-# Quantitative Portfolio Risk Analysis System: A Framework for Market Regime Detection and Risk Assessment in Semiconductor Equities
+# Quantitative Portfolio Risk Analysis System: A Framework for Market Regime Detection and Risk Assessment in Semiconductor Equities (Classwork) 
 ## Setup Guide
 
 ### Prerequisites
