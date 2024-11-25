@@ -17,6 +17,7 @@ setup(
         # Machine Learning & Statistics
         "scikit-learn>=0.24.0",
         "arch>=5.0.0",
+        "hmmlearn>=0.3.3",
         
         # Visualization
         "matplotlib>=3.4.0",
