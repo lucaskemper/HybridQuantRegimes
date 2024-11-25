@@ -55,7 +55,7 @@ setup(
     include_package_data=True,
     classifiers=[
         "Development Status :: 3 - Alpha",
-        "Intended Audience :: Financial and Insurance Industry",
+        "Intended Audience :: Financial Industry",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
