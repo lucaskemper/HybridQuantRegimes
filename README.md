@@ -163,6 +163,13 @@ results = risk_manager.analyze_portfolio(market_data)
 2. McNeil, A. J., Frey, R., & Embrechts, P. (2015). "Quantitative Risk Management: Concepts, Techniques and Tools." *Princeton University Press*. ISBN: 978-0691166278
 
 3. Bollerslev, T. (1986). "Generalized Autoregressive Conditional Heteroskedasticity." *Journal of Econometrics*, 31(3), 307-327. https://doi.org/10.1016/0304-4076(86)90063-1
+5.  McNeil, A.J., Frey, R. (2000). "Estimation of Tail-Related Risk Measures"
+3. Hamilton, J.D. (1989). "A New Approach to the Economic Analysis of Time Series"
+4. Ang, A., Bekaert, G. (2002). "Regime Switches in Interest Rates"
+5. Maïnassara, Y.B., Kadmiri O., Saussereau B. (2022). "Estimation of multivariate asymmetric power GARCH models"
+6. Cunchala, A. (2024). "A Basic Overview of Various Stochastic Approaches to Financial Modeling With Examples"
+7. Goyal, A., Welch, I., "A Comprehensive 2022 Look at the Empirical Performance of Equity Premium Prediction"
+8. Jondeau, E., Rockinger, M. (2006). "The copula-garch model of conditional dependencies: An international stock market application"
 
 
 ## License and Distribution
