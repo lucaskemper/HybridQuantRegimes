@@ -6,6 +6,10 @@ Monte_carlo : Working
 Visualization : Check
 Signals : Not Working
 ...
+
+## Authors and Institutional Affiliation
+- **Lucas Kemper** - MscF Student, HEC Lausanne
+- **Antonio Schoeffel** -  MscF Student, HEC Lausanne
 ## Setup Guide
 
 ### Prerequisites
@@ -160,9 +164,6 @@ results = risk_manager.analyze_portfolio(market_data)
 
 3. Bollerslev, T. (1986). "Generalized Autoregressive Conditional Heteroskedasticity." *Journal of Econometrics*, 31(3), 307-327. https://doi.org/10.1016/0304-4076(86)90063-1
 
-## Authors and Institutional Affiliation
-- **Lucas Kemper** - MscF Student, HEC Lausanne
-- **Antonio Schoeffel** -  MscF Student, HEC Lausanne
 
 ## License and Distribution
 This research implementation is distributed under the MIT License - see [LICENSE.md](LICENSE.md)
