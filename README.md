@@ -6,7 +6,7 @@ Monte_carlo : Working
 Visualization : Check
 Signals : Not Working
 ...
-Notes: Lucas: is HMM a good idea or too complex (cf. regime.py)
+
 ## Authors and Institutional Affiliation
 - **Lucas Kemper** - MscF Student, HEC Lausanne
 - **Antonio Schoeffel** -  MscF Student, HEC Lausanne
