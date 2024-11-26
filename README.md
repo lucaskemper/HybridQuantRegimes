@@ -3,7 +3,7 @@
 Current state:
 Data : Working
 Monte_carlo : Working
-Visualization : Check
+Visualization : Good For Now
 Signals : Not Working
 ...
 
