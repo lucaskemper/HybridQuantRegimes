@@ -168,8 +168,7 @@ results = risk_manager.analyze_portfolio(market_data)
 4. Ang, A., Bekaert, G. (2002). "Regime Switches in Interest Rates"
 5. Maïnassara, Y.B., Kadmiri O., Saussereau B. (2022). "Estimation of multivariate asymmetric power GARCH models"
 6. Cunchala, A. (2024). "A Basic Overview of Various Stochastic Approaches to Financial Modeling With Examples"
-7. Goyal, A., Welch, I., "A Comprehensive 2022 Look at the Empirical Performance of Equity Premium Prediction"
-8. Jondeau, E., Rockinger, M. (2006). "The copula-garch model of conditional dependencies: An international stock market application"
+
 
 
 ## License and Distribution
