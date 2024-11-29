@@ -13,6 +13,7 @@ setup(
         # Financial Data
         "yfinance>=0.1.63",
         "pandas-datareader>=0.10.0",
+        "alpaca-trade-api>=3.0.0",
         
         # Machine Learning & Statistics
         "scikit-learn>=0.24.0",
