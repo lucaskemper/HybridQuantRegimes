@@ -1,11 +1,13 @@
 # src/data.py
 from dataclasses import dataclass, field
-from typing import List, Dict
+from typing import List, Dict, Optional, Union
 import alpaca_trade_api as tradeapi
 import pandas as pd
 import numpy as np
 import os
 from dotenv import load_dotenv
+import logging
+from datetime import datetime, timedelta
 
 load_dotenv()
 
@@ -31,23 +33,70 @@ class DataLoader:
     
     def __init__(self, config: PortfolioConfig):
         self.config = config
-        self.api = tradeapi.REST(
-            key_id=config.alpaca_key_id,
-            secret_key=config.alpaca_secret_key,
-            base_url='https://paper-api.alpaca.markets' if config.paper_trading 
-                    else 'https://api.alpaca.markets'
-        )
+        self._setup_api()
+        self._setup_logging()
     
-    def load_stocks(self) -> Dict:
-        """Load and process stock data according to requirements"""
+    def _setup_api(self):
+        """Initialize Alpaca API connection"""
         try:
-            print(f"\nLoading data for {', '.join(self.config.tickers)}...")
-            
-            # Load raw data from Alpaca
-            data = {}
-            for ticker in self.config.tickers:
-                # Handle market indices (e.g., '^IXIC') by removing the '^' prefix
-                clean_ticker = ticker.replace('^', '')
+            self.api = tradeapi.REST(
+                key_id=self.config.alpaca_key_id,
+                secret_key=self.config.alpaca_secret_key,
+                base_url='https://paper-api.alpaca.markets' if self.config.paper_trading 
+                        else 'https://api.alpaca.markets'
+            )
+            # Verify connection
+            self.api.get_account()
+        except Exception as e:
+            raise ConnectionError(f"Failed to connect to Alpaca API: {str(e)}")
+    
+    def _setup_logging(self):
+        """Setup logging configuration"""
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.INFO)
+    
+    def load_stocks(self, retries: int = 3) -> Dict:
+        """Load and process stock data with retry mechanism"""
+        for attempt in range(retries):
+            try:
+                self.logger.info(f"Loading data for {', '.join(self.config.tickers)}...")
+                
+                # Verify trading days
+                start = pd.Timestamp(self.config.start_date)
+                end = pd.Timestamp(self.config.end_date)
+                if not self._verify_market_dates(start, end):
+                    raise ValueError("Invalid market dates specified")
+                
+                data = self._fetch_data()
+                market_data = self._process_data(data)
+                
+                if self.validate_data(market_data):
+                    self.logger.info("Data validation successful")
+                    return market_data
+                raise ValueError("Data validation failed")
+                
+            except Exception as e:
+                self.logger.error(f"Attempt {attempt + 1}/{retries} failed: {str(e)}")
+                if attempt == retries - 1:
+                    raise
+    
+    def _verify_market_dates(self, start: pd.Timestamp, end: pd.Timestamp) -> bool:
+        """Verify that dates are valid trading days"""
+        try:
+            calendar = self.api.get_calendar(start=start, end=end)
+            if not calendar:
+                return False
+            return True
+        except Exception as e:
+            self.logger.warning(f"Market date verification failed: {str(e)}")
+            return False
+    
+    def _fetch_data(self) -> Dict[str, pd.DataFrame]:
+        """Fetch raw data from Alpaca API"""
+        data = {}
+        for ticker in self.config.tickers:
+            clean_ticker = ticker.replace('^', '')
+            try:
                 bars = self.api.get_bars(
                     clean_ticker,
                     tradeapi.TimeFrame.Day,
@@ -56,38 +105,40 @@ class DataLoader:
                     adjustment='all'
                 ).df
                 data[ticker] = bars
-            
-            # Align all data to common dates
-            close_prices = pd.DataFrame({
-                ticker: data[ticker]['close'] for ticker in self.config.tickers
-            })
-            volumes = pd.DataFrame({
-                ticker: data[ticker]['volume'] for ticker in self.config.tickers
-            })
-            
-            # Prepare required data structure (maintaining same format as before)
-            market_data = {
-                'close': close_prices,
-                'returns': close_prices.pct_change().dropna(),
-                'volume': volumes,
-                'metadata': {
-                    'start_date': close_prices.index[0].strftime('%Y-%m-%d'),
-                    'end_date': close_prices.index[-1].strftime('%Y-%m-%d'),
-                    'number_of_trading_days': len(close_prices),
-                    'missing_data_percentage': (close_prices.isnull().sum().sum() / 
-                        (close_prices.shape[0] * close_prices.shape[1]) * 100)
-                }
-            }
-            
-            if self.validate_data(market_data):
-                return market_data
-            else:
-                raise ValueError("Data validation failed")
-            
-        except Exception as e:
-            print(f"Error loading data: {str(e)}")
-            raise
-
+            except Exception as e:
+                self.logger.error(f"Failed to fetch data for {ticker}: {str(e)}")
+                raise
+        return data
+    
+    def _process_data(self, raw_data: Dict[str, pd.DataFrame]) -> Dict:
+        """Process raw data into required format"""
+        # Align all data to common dates
+        close_prices = pd.DataFrame({
+            ticker: data['close'] for ticker, data in raw_data.items()
+        })
+        volumes = pd.DataFrame({
+            ticker: data['volume'] for ticker, data in raw_data.items()
+        })
+        
+        return {
+            'close': close_prices,
+            'returns': close_prices.pct_change().dropna(),
+            'volume': volumes,
+            'metadata': self._generate_metadata(close_prices)
+        }
+    
+    def _generate_metadata(self, prices: pd.DataFrame) -> Dict:
+        """Generate metadata for the dataset"""
+        return {
+            'start_date': prices.index[0].strftime('%Y-%m-%d'),
+            'end_date': prices.index[-1].strftime('%Y-%m-%d'),
+            'number_of_trading_days': len(prices),
+            'missing_data_percentage': (prices.isnull().sum().sum() / 
+                (prices.shape[0] * prices.shape[1]) * 100),
+            'tickers': list(prices.columns),
+            'data_provider': 'alpaca'
+        }
+    
     def validate_data(self, data: Dict) -> bool:
         """Validate data according to requirements"""
         try:
