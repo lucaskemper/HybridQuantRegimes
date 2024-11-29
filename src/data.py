@@ -33,27 +33,41 @@ class DataLoader:
     
     def __init__(self, config: PortfolioConfig):
         self.config = config
-        self._setup_api()
         self._setup_logging()
-    
-    def _setup_api(self):
-        """Initialize Alpaca API connection"""
-        try:
-            self.api = tradeapi.REST(
-                key_id=self.config.alpaca_key_id,
-                secret_key=self.config.alpaca_secret_key,
-                base_url='https://paper-api.alpaca.markets' if self.config.paper_trading 
-                        else 'https://api.alpaca.markets'
-            )
-            # Verify connection
-            self.api.get_account()
-        except Exception as e:
-            raise ConnectionError(f"Failed to connect to Alpaca API: {str(e)}")
+        self._setup_api()
     
     def _setup_logging(self):
         """Setup logging configuration"""
         self.logger = logging.getLogger(__name__)
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
         self.logger.setLevel(logging.INFO)
+    
+    def _setup_api(self):
+        """Initialize Alpaca API connection"""
+        try:
+            self.logger.info(f"Connecting to Alpaca API...")
+            self.logger.info(f"Using paper trading: {self.config.paper_trading}")
+            
+            # Use data API endpoint
+            base_url = 'https://data.alpaca.markets'
+            
+            self.api = tradeapi.REST(
+                key_id=self.config.alpaca_key_id,
+                secret_key=self.config.alpaca_secret_key,
+                base_url=base_url,
+                api_version='v2'
+            )
+            
+            # Test connection with a simple market data request
+            self.api.get_latest_trade('AAPL')
+            self.logger.info("Successfully connected to Alpaca Data API")
+            
+        except Exception as e:
+            self.logger.error(f"API setup failed: {str(e)}")
+            raise ConnectionError(f"Failed to connect to Alpaca API: {str(e)}")
     
     def load_stocks(self, retries: int = 3) -> Dict:
         """Load and process stock data with retry mechanism"""
@@ -61,12 +75,7 @@ class DataLoader:
             try:
                 self.logger.info(f"Loading data for {', '.join(self.config.tickers)}...")
                 
-                # Verify trading days
-                start = pd.Timestamp(self.config.start_date)
-                end = pd.Timestamp(self.config.end_date)
-                if not self._verify_market_dates(start, end):
-                    raise ValueError("Invalid market dates specified")
-                
+                # Fetch data directly without market date verification
                 data = self._fetch_data()
                 market_data = self._process_data(data)
                 
@@ -80,34 +89,29 @@ class DataLoader:
                 if attempt == retries - 1:
                     raise
     
-    def _verify_market_dates(self, start: pd.Timestamp, end: pd.Timestamp) -> bool:
-        """Verify that dates are valid trading days"""
-        try:
-            calendar = self.api.get_calendar(start=start, end=end)
-            if not calendar:
-                return False
-            return True
-        except Exception as e:
-            self.logger.warning(f"Market date verification failed: {str(e)}")
-            return False
-    
     def _fetch_data(self) -> Dict[str, pd.DataFrame]:
         """Fetch raw data from Alpaca API"""
         data = {}
         for ticker in self.config.tickers:
-            clean_ticker = ticker.replace('^', '')
             try:
                 bars = self.api.get_bars(
-                    clean_ticker,
+                    ticker,
                     tradeapi.TimeFrame.Day,
-                    start=self.config.start_date,
-                    end=self.config.end_date,
-                    adjustment='all'
+                    start=pd.Timestamp(self.config.start_date).strftime('%Y-%m-%d'),
+                    end=pd.Timestamp(self.config.end_date).strftime('%Y-%m-%d'),
+                    adjustment='raw'
                 ).df
+                
+                if bars.empty:
+                    raise ValueError(f"No data returned for {ticker}")
+                    
                 data[ticker] = bars
+                self.logger.info(f"Successfully loaded data for {ticker}")
+                
             except Exception as e:
                 self.logger.error(f"Failed to fetch data for {ticker}: {str(e)}")
                 raise
+        
         return data
     
     def _process_data(self, raw_data: Dict[str, pd.DataFrame]) -> Dict:
@@ -178,19 +182,44 @@ class DataLoader:
 
     def get_summary_statistics(self, data: Dict) -> Dict:
         """Calculate summary statistics for the portfolio"""
-        stats = {
-            'returns': {
-                'mean': data['returns'].mean() * 252,
-                'std': data['returns'].std() * np.sqrt(252),
-                'skew': data['returns'].skew(),
-                'kurt': data['returns'].kurtosis()
-            },
-            'correlation': data['returns'].corr().round(3),
-            'daily_volume_avg': data['volume'].mean(),
-            'price_metrics': {
-                'start_price': data['close'].iloc[0],
-                'end_price': data['close'].iloc[-1],
-                'return': (data['close'].iloc[-1] / data['close'].iloc[0] - 1)
+        try:
+            # Calculate portfolio returns using weights
+            weights_series = pd.Series(self.config.weights, index=self.config.tickers)
+            portfolio_returns = (data['returns'] * weights_series).sum(axis=1)
+            
+            # Calculate portfolio-level statistics
+            stats = {
+                'portfolio': {
+                    'annual_return': float(portfolio_returns.mean() * 252),
+                    'annual_volatility': float(portfolio_returns.std() * np.sqrt(252)),
+                    'skewness': float(portfolio_returns.skew()),
+                    'kurtosis': float(portfolio_returns.kurtosis()),
+                    'sharpe_ratio': float((portfolio_returns.mean() * 252) / 
+                                        (portfolio_returns.std() * np.sqrt(252)))
+                },
+                'individual_assets': {},
+                'correlation': data['returns'].corr().round(3).to_dict()
             }
-        }
-        return stats
+            
+            # Calculate individual asset statistics
+            for ticker in self.config.tickers:
+                returns = data['returns'][ticker]
+                volume = data['volume'][ticker]
+                weight = weights_series[ticker]
+                
+                stats['individual_assets'][ticker] = {
+                    'weight': float(weight),
+                    'annual_return': float(returns.mean() * 252),
+                    'annual_volatility': float(returns.std() * np.sqrt(252)),
+                    'sharpe_ratio': float((returns.mean() * 252) / 
+                                        (returns.std() * np.sqrt(252))),
+                    'avg_daily_volume': float(volume.mean()),
+                    'skewness': float(returns.skew()),
+                    'kurtosis': float(returns.kurtosis())
+                }
+            
+            return stats
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating statistics: {str(e)}")
+            raise
