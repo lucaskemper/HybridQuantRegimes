@@ -1,9 +1,13 @@
 # src/data.py
 from dataclasses import dataclass, field
 from typing import List, Dict
-import yfinance as yf
+import alpaca_trade_api as tradeapi
 import pandas as pd
 import numpy as np
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 @dataclass
 class PortfolioConfig:
@@ -12,41 +16,66 @@ class PortfolioConfig:
     weights: List[float] = field(default_factory=lambda: [0.4, 0.4, 0.2])
     start_date: str = '2022-01-01'
     end_date: str = '2024-05-01'
+    alpaca_key_id: str = field(default_factory=lambda: os.getenv('ALPACA_KEY_ID', ''))
+    alpaca_secret_key: str = field(default_factory=lambda: os.getenv('ALPACA_SECRET_KEY', ''))
+    paper_trading: bool = field(default_factory=lambda: os.getenv('PAPER_TRADING', 'true').lower() == 'true')
     
     def __post_init__(self):
         assert len(self.tickers) == len(self.weights), "Tickers and weights must match"
         assert abs(sum(self.weights) - 1.0) < 1e-6, "Weights must sum to 1"
+        assert self.alpaca_key_id, "Alpaca API key ID is required"
+        assert self.alpaca_secret_key, "Alpaca secret key is required"
 
 class DataLoader:
-    """Loads and processes stock data"""
+    """Loads and processes stock data using Alpaca API"""
     
     def __init__(self, config: PortfolioConfig):
         self.config = config
+        self.api = tradeapi.REST(
+            key_id=config.alpaca_key_id,
+            secret_key=config.alpaca_secret_key,
+            base_url='https://paper-api.alpaca.markets' if config.paper_trading 
+                    else 'https://api.alpaca.markets'
+        )
     
     def load_stocks(self) -> Dict:
         """Load and process stock data according to requirements"""
         try:
             print(f"\nLoading data for {', '.join(self.config.tickers)}...")
             
-            # Load raw data
-            data = yf.download(
-                tickers=self.config.tickers,
-                start=self.config.start_date,
-                end=self.config.end_date,
-                progress=False
-            )
+            # Load raw data from Alpaca
+            data = {}
+            for ticker in self.config.tickers:
+                # Handle market indices (e.g., '^IXIC') by removing the '^' prefix
+                clean_ticker = ticker.replace('^', '')
+                bars = self.api.get_bars(
+                    clean_ticker,
+                    tradeapi.TimeFrame.Day,
+                    start=self.config.start_date,
+                    end=self.config.end_date,
+                    adjustment='all'
+                ).df
+                data[ticker] = bars
             
-            # Prepare required data structure
+            # Align all data to common dates
+            close_prices = pd.DataFrame({
+                ticker: data[ticker]['close'] for ticker in self.config.tickers
+            })
+            volumes = pd.DataFrame({
+                ticker: data[ticker]['volume'] for ticker in self.config.tickers
+            })
+            
+            # Prepare required data structure (maintaining same format as before)
             market_data = {
-                'close': data['Adj Close'],
-                'returns': data['Adj Close'].pct_change().dropna(),
-                'volume': data['Volume'],
+                'close': close_prices,
+                'returns': close_prices.pct_change().dropna(),
+                'volume': volumes,
                 'metadata': {
-                    'start_date': data.index[0].strftime('%Y-%m-%d'),
-                    'end_date': data.index[-1].strftime('%Y-%m-%d'),
-                    'number_of_trading_days': len(data),
-                    'missing_data_percentage': (data.isnull().sum().sum() / 
-                        (data.shape[0] * data.shape[1]) * 100)
+                    'start_date': close_prices.index[0].strftime('%Y-%m-%d'),
+                    'end_date': close_prices.index[-1].strftime('%Y-%m-%d'),
+                    'number_of_trading_days': len(close_prices),
+                    'missing_data_percentage': (close_prices.isnull().sum().sum() / 
+                        (close_prices.shape[0] * close_prices.shape[1]) * 100)
                 }
             }
             
@@ -97,19 +126,11 @@ class DataLoader:
             return False
 
     def get_summary_statistics(self, data: Dict) -> Dict:
-        """Calculate summary statistics for the portfolio
-        
-        Returns:
-            Dict containing:
-            - returns: mean (annualized), std (annualized), skewness, kurtosis
-            - correlation: correlation matrix between assets
-            - daily_volume_avg: average daily trading volume
-            - price_metrics: starting price, ending price, total return
-        """
+        """Calculate summary statistics for the portfolio"""
         stats = {
             'returns': {
-                'mean': data['returns'].mean() * 252,  # Annualized returns
-                'std': data['returns'].std() * np.sqrt(252),  # Annualized volatility
+                'mean': data['returns'].mean() * 252,
+                'std': data['returns'].std() * np.sqrt(252),
                 'skew': data['returns'].skew(),
                 'kurt': data['returns'].kurtosis()
             },
