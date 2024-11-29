@@ -1,1 +1,68 @@
+# Portfolio Configuration
+portfolio:
+  tickers: ['NVDA', 'AMD', 'INTC']
+  weights: [0.4, 0.4, 0.2]
+  dates:
+    start: '2022-01-01'
+    end: '2024-05-01'
 
+# Data Provider Settings
+data_provider:
+  source: 'alpaca'  # Options: 'alpaca', 'yahoo'
+  paper_trading: true
+  cache:
+    enabled: true
+    expiry_hours: 24
+
+# Risk Analysis Configuration
+risk:
+  confidence_level: 0.95
+  max_drawdown_limit: 0.20
+  volatility_target: 0.15
+  position_limit: 0.40
+  risk_free_rate: 0.05
+  metrics:
+    - var
+    - expected_shortfall
+    - sharpe_ratio
+    - information_ratio
+
+# Monte Carlo Simulation
+monte_carlo:
+  n_simulations: 10000
+  n_days: 252
+  confidence_levels: [0.05, 0.25, 0.5, 0.75, 0.95]
+  distribution: 'student-t'  # Options: 'normal', 'student-t'
+  degrees_of_freedom: 5
+
+# Market Regime Detection
+regime:
+  n_regimes: 3
+  window_size: 63
+  min_samples: 252
+  labels:
+    - 'Low Volatility'
+    - 'Medium Volatility'
+    - 'High Volatility'
+
+# Visualization
+visualization:
+  style: 'seaborn-v0_8-darkgrid'
+  figure:
+    width: 15
+    height: 10
+  colors:
+    - '#2C3E50'
+    - '#E74C3C'
+    - '#3498DB'
+  plots:
+    - cumulative_returns
+    - rolling_volatility
+    - correlation_matrix
+    - regime_transitions
+
+# Development Settings
+development:
+  debug: false
+  log_level: 'INFO'
+  test_mode: false
