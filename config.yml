@@ -41,9 +41,9 @@ regime:
   window_size: 63
   min_samples: 252
   labels:
-    - 'Low Volatility'
+    - 'Bull'
     - 'Medium Volatility'
-    - 'High Volatility'
+    - 'Bear'
 
 # Visualization
 visualization:
