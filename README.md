@@ -7,7 +7,7 @@ Visualization : Good For Now
 Signals : Not Working
 Risk: Working on it (L)
 ...
-Comment: you now need alpaca API key to use the software (see .env)
+Comment: you need alpaca API key to use the software (see .env)
 ## Authors and Institutional Affiliation
 - **Lucas Kemper** - MscF Student, HEC Lausanne
 - **Antonio Schoeffel** -  MscF Student, HEC Lausanne
