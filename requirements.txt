@@ -13,17 +13,23 @@ scikit-learn>=0.24.0
 arch>=5.0.0
 hmmlearn>=0.3.3
 
+# Statistics and Financial Analysis
+statsmodels>=0.13.0
+scipy-stats-hmm>=0.1.0
+
 # Visualization
 matplotlib>=3.4.0
 seaborn>=0.11.0
 plotly>=5.0.0
 mplfinance>=0.12.9b7
+bokeh>=3.0.0
 
 # Progress and Utils
 tqdm>=4.62.0
 ipython>=7.0.0
 jupyter>=1.0.0
 notebook>=6.4.0
+jupyterlab>=4.0.0
 
 # Async Support
 aiohttp>=3.8.0
@@ -33,11 +39,16 @@ asyncio>=3.4.3
 typing-extensions>=4.0.0
 mypy>=0.910
 
+# Data Validation
+pydantic>=2.0.0
+
 # Testing
 pytest>=7.0.0
 pytest-cov>=3.0.0
 pytest-mock>=3.6.1
 pytest-asyncio>=0.18.0
+pytest-benchmark>=4.0.0
+pytest-xdist>=3.0.0
 
 # Development Tools
 black>=22.0.0         # Code formatting
@@ -50,6 +61,8 @@ pre-commit>=2.17.0    # Git hooks
 sphinx>=4.0.0
 sphinx-rtd-theme>=1.0.0
 nbconvert>=6.4.0
+jupyter-book>=0.15.0
+mkdocs>=1.5.0
 
 # Project Packaging
 setuptools>=60.0.0
