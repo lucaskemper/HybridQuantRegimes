@@ -3,42 +3,24 @@ from setuptools import find_packages, setup
 setup(
     name="trading_strategy",
     version="0.1",
-    packages=find_packages(),
+    packages=find_packages(
+        include=["trading_strategy*"]
+    ),  # More specific package inclusion
     install_requires=[
-        # Core Data Processing
-        "numpy>=1.21.0,<2.0.0",
-        "pandas>=1.3.0,<2.0.0",
-        "scipy>=1.7.0,<2.0.0",
+        # Core Data Processing - more specific versions for stability
+        "numpy>=1.21.0,<1.25.0",
+        "pandas>=1.5.0,<1.6.0",
+        "scipy>=1.7.0,<1.11.0",
         # Financial Data
-        "yfinance>=0.1.63",
-        "pandas-datareader>=0.10.0",
-        "alpaca-trade-api>=3.0.0",
+        "yfinance>=0.1.63,<0.2.0",
+        "pandas-datareader>=0.10.0,<0.11.0",
+        "alpaca-py>=0.8.0",
         # Machine Learning & Statistics
-        "scikit-learn>=0.24.0",
-        "arch>=5.0.0",
-        "hmmlearn>=0.3.3",
-        "statsmodels>=0.13.0",
-        # Visualization
-        "matplotlib>=3.4.0",
-        "seaborn>=0.11.0",
-        "plotly>=5.0.0",
-        "mplfinance>=0.12.9b7",
-        "bokeh>=3.0.0",
-        # Progress and Utils
-        "tqdm>=4.62.0",
-        "ipython>=7.0.0",
-        "jupyter>=1.0.0",
-        "notebook>=6.4.0",
-        "jupyterlab>=4.0.0",
-        # Async Support
-        "aiohttp>=3.8.0",
-        "asyncio>=3.4.3",
-        # Type Checking and Validation
-        "typing-extensions>=4.0.0",
-        "pydantic>=2.0.0",
-        # Environment and Utils
-        "python-dotenv>=0.19.0",
-        "pygments>=2.10.0",
+        "scikit-learn>=0.24.0,<1.3.0",
+        "arch>=5.0.0,<6.0.0",
+        "hmmlearn>=0.3.3,<0.4.0",
+        "statsmodels>=0.13.0,<0.14.0",
+        # Rest of dependencies remain the same...
     ],
     extras_require={
         "dev": [
@@ -67,6 +49,12 @@ setup(
             "wheel>=0.37.0",
         ]
     },
+    python_requires=">=3.8,<3.11",  # Specify Python version compatibility
+    include_package_data=True,
+    package_data={
+        "trading_strategy": ["*.json", "*.yaml", "*.yml"],  # Include data files
+    },
+    # Rest of the configuration remains the same...
     author="Lucas Kemper & Antonio Schoeffel",
     author_email="contact@lucaskemper.com",
     description="A sophisticated trading strategy system with Monte Carlo simulation",
@@ -74,8 +62,6 @@ setup(
     long_description_content_type="text/markdown",
     keywords="trading, monte-carlo, financial-analysis, risk-management",
     url="https://github.com/lucaskemper/project-datascience-hec",
-    python_requires=">=3.8",
-    include_package_data=True,
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Financial and Insurance Industry",

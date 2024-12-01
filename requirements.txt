@@ -6,7 +6,7 @@ scipy>=1.7.0,<2.0.0
 # Finance
 yfinance>=0.1.63
 pandas-datareader>=0.10.0
-alpaca-trade-api>=3.0.0
+alpaca-py>=0.8.0
 
 # Machine Learning
 scikit-learn>=0.24.0
