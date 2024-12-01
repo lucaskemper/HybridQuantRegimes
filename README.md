@@ -6,7 +6,7 @@
 |---------------|-----------|-------------------------------------|
 | Data Pipeline | ✅ Working | Core functionality implemented     |
 | Monte Carlo   | ✅ Working | Module works as expected        |
-| Visualization | ⚠️ Working | Planned UI/UX improvements          |
+| Visualization | ⚠️ Working | Planned  improvements          |
 | Signals       | ❌ Pending | Development not started            |
 | Risk Analysis | 🏗️ WIP    | Under active development           |
 | Regime Detection| ✅ Working | Core algorithms implemented      |
