@@ -5,7 +5,7 @@
 | Component      | Status    | Notes                               |
 |---------------|-----------|-------------------------------------|
 | Data Pipeline | ✅ Working | Core functionality implemented     |
-| Monte Carlo   | ✅ Working | All simulations operational        |
+| Monte Carlo   | ✅ Working | Module works as expected        |
 | Visualization | ⚠️ Working | Planned UI/UX improvements          |
 | Signals       | ❌ Pending | Development not started            |
 | Risk Analysis | 🏗️ WIP    | Under active development           |
