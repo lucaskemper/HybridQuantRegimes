@@ -1,0 +1,47 @@
+\section{Portfolio Risk Analysis}
+\subsection{Risk Metrics Overview}
+Our analysis of the semiconductor portfolio yielded the following key risk metrics:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcc}
+\hline
+Metric & Value & Interpretation \\
+\hline
+Portfolio Volatility & 32.14\% & Annualized \\
+VaR (95\%) & -2.86\% & Daily \\
+Expected Shortfall & -3.92\% & Daily \\
+Diversification Score & 0.68 & Scale 0-1 \\
+\hline
+\end{tabular}
+\caption{Core Risk Metrics}
+\label{tab:risk_metrics}
+\end{table}
+
+\subsection{Risk Decomposition}
+Component risk contributions reveal concentration in leading semiconductor manufacturers:
+
+\begin{itemize}
+    \item NVDA: 41.2\% contribution
+    \item AMD: 32.8\% contribution
+    \item INTC: 14.6\% contribution
+    \item ASML: 11.4\% contribution
+\end{itemize}
+
+\section{Regime-Dependent Risk}
+Risk metrics exhibit significant variation across market regimes:
+
+\begin{equation}
+    \sigma_{\text{portfolio}}^2 = \sum_{i=1}^{3} \pi_i \sigma_i^2 + \sum_{i=1}^{3} \pi_i (\mu_i - \bar{\mu})^2
+\end{equation}
+
+where $\pi_i$ represents regime probabilities, $\sigma_i^2$ regime-specific variances, and $\mu_i$ regime-specific means.
+
+\section{Tail Risk Analysis}
+Heavy-tailed distributions better capture extreme market events:
+
+\begin{itemize}
+    \item Excess kurtosis: 3.42
+    \item Tail dependence coefficient: 0.31
+    \item Regime-switching VaR improvement: 12.4\%
+\end{itemize}

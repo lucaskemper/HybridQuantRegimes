@@ -1,0 +1,62 @@
+\section{Background and Motivation}
+The semiconductor industry represents a critical component of modern technology infrastructure, characterized by high volatility, cyclical behavior, and complex market dynamics. Recent global events, including supply chain disruptions and geopolitical tensions, have highlighted the need for sophisticated risk management approaches in this sector.
+
+\section{Research Objectives}
+This study aims to develop and validate a comprehensive quantitative framework for analyzing portfolio risk in semiconductor equities, with specific focus on:
+
+\begin{itemize}
+    \item Detection and characterization of market regimes using Hidden Markov Models
+    \item Integration of heavy-tailed distributions in Monte Carlo simulations
+    \item Development of regime-dependent risk metrics
+    \item Implementation of an automated, production-ready analysis system
+\end{itemize}
+
+\section{Literature Review}
+\subsection{Market Regime Detection}
+The application of Hidden Markov Models (HMM) in financial markets builds upon seminal work by \cite{hamilton1989new}, who introduced regime-switching models for economic time series. Recent extensions by \cite{ang2012regime} demonstrate the value of regime-awareness in portfolio management.
+
+\subsection{Risk Measurement}
+Traditional risk measures, while useful, often underestimate tail risks in technology sectors. \cite{embrechts2005quantitative} emphasize the importance of heavy-tailed distributions, particularly relevant for semiconductor stocks given their historical patterns of extreme movements.
+
+\subsection{Portfolio Analysis in Technology Sectors}
+Empirical studies of semiconductor industry dynamics by \cite{author2020} highlight unique characteristics:
+\begin{itemize}
+    \item High correlation during market stress
+    \item Cyclical nature of returns
+    \item Sensitivity to technological innovation cycles
+\end{itemize}
+
+\section{Methodology Overview}
+Our approach combines multiple quantitative techniques:
+
+\begin{equation}
+    P(r_t|S_t) = \sum_{i=1}^{K} \pi_i f_i(r_t|\theta_i)
+\end{equation}
+
+where $r_t$ represents returns, $S_t$ the market regime, and $f_i$ regime-specific distributions with parameters $\theta_i$.
+
+\section{Data Description}
+The analysis focuses on major semiconductor companies:
+\begin{itemize}
+    \item NVIDIA Corporation (NVDA)
+    \item Advanced Micro Devices (AMD)
+    \item Intel Corporation (INTC)
+    \item ASML Holding (ASML)
+\end{itemize}
+
+Daily price data spans 2017-2023, encompassing multiple market cycles and significant industry events.
+
+\section{Expected Contributions}
+This research aims to:
+\begin{itemize}
+    \item Develop a robust framework for regime-aware risk analysis
+    \item Provide empirical insights into semiconductor market dynamics
+    \item Create practical tools for portfolio risk management
+\end{itemize}
+
+\section{Paper Structure}
+The remainder of this paper is organized as follows:
+Chapter \ref{ch:theoretical} presents the theoretical framework.
+Chapter \ref{ch:data} describes data processing and implementation.
+Chapters \ref{ch:regime}-\ref{ch:validation} present empirical results.
+Chapter \ref{ch:conclusion} concludes.

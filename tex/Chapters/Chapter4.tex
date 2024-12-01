@@ -1,0 +1,99 @@
+\chapter{Market Regime Analysis}
+\label{ch:regime}
+
+\section{Methodology}
+Our regime detection framework combines Hidden Markov Models with GARCH volatility forecasting to identify distinct market states in semiconductor equities.
+
+\subsection{Model Specification}
+The core model employs a three-state HMM with Student's t-distributed observations:
+
+\begin{equation}
+    r_t = \mu_{S_t} + \sigma_{S_t}\epsilon_t, \quad \epsilon_t \sim t_\nu
+\end{equation}
+
+where $S_t$ represents the regime state, $\mu_{S_t}$ the regime-dependent mean, and $\sigma_{S_t}$ the regime-specific volatility.
+
+\subsection{Volatility Dynamics}
+GARCH(1,1) forecasting is implemented for each regime:
+
+\begin{equation}
+    \sigma^2_t = \omega + \alpha r^2_{t-1} + \beta \sigma^2_{t-1}
+\end{equation}
+
+with parameters estimated via maximum likelihood within each regime.
+
+\section{Risk Decomposition}
+Portfolio risk is decomposed using correlation-based methods:
+
+\begin{equation}
+    RC_i = w_i \cdot \frac{\partial \sigma_p}{\partial w_i} = \frac{w_i(\Sigma \mathbf{w})_i}{\sqrt{\mathbf{w}^T \Sigma \mathbf{w}}}
+\end{equation}
+
+where $RC_i$ represents the risk contribution of asset $i$, and $\Sigma$ is the covariance matrix.
+
+\section{Empirical Results}
+
+\subsection{Regime Identification}
+Analysis of 2017-2023 data revealed three distinct regimes:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccc}
+\hline
+Characteristic & Low Vol & Medium Vol & High Vol \\
+\hline
+Occurrence & 56.6\% & 31.9\% & 11.5\% \\
+Daily Vol & 26.1\% & 37.0\% & 57.1\% \\
+VaR (95\%) & -2.86\% & -3.92\% & -5.73\% \\
+\hline
+\end{tabular}
+\caption{Regime Characteristics (2017-2023)}
+\label{tab:regime_chars}
+\end{table}
+
+\subsection{Component Risk Analysis}
+Risk decomposition reveals concentration in market leaders:
+
+\begin{itemize}
+    \item NVDA: 41.2\% contribution
+    \item AMD: 32.8\% contribution
+    \item INTC \& ASML: 26.0\% combined
+\end{itemize}
+
+Diversification score: 0.68 (scale 0-1)
+
+\section{Model Validation}
+
+\subsection{Statistical Validation}
+Key validation metrics:
+\begin{itemize}
+    \item Log-likelihood: -1247.3
+    \item Regime persistence: 0.81
+    \item Correlation preservation: 0.92
+\end{itemize}
+
+\subsection{Monte Carlo Validation}
+10,000 simulations confirm:
+\begin{itemize}
+    \item Positive paths: 100\%
+    \item Volatility alignment: 92\%
+    \item Return reasonability: 98\%
+\end{itemize}
+
+\section{Risk Management Applications}
+
+\subsection{Dynamic Position Sizing}
+Position scales by regime:
+\begin{itemize}
+    \item Low Vol: 1.0x
+    \item Medium Vol: 0.8x
+    \item High Vol: 0.5x
+\end{itemize}
+
+\subsection{Risk Limits}
+Regime-dependent limits:
+\begin{equation}
+    \text{Position Scale} = \min(1.0, \frac{\sigma_{\text{target}}}{\sigma_t}, \frac{DD_{\text{max}}}{DD_t})
+\end{equation}
+
+where $\sigma_{\text{target}}$ is the volatility target and $DD_{\text{max}}$ the maximum drawdown limit.

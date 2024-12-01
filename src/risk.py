@@ -8,6 +8,8 @@ import pandas as pd
 from scipy import stats
 from scipy.stats import norm
 
+from .regime import MarketRegimeDetector, RegimeConfig
+
 
 @dataclass
 class RiskConfig:
@@ -32,6 +34,13 @@ class RiskConfig:
     correlation_regime: bool = True
     tail_risk_measure: str = "evt"  # ['evt', 'copula', 'empirical']
     _weights: Optional[List[float]] = field(default=None, repr=False)
+
+    # Add regime detection configuration
+    regime_config: RegimeConfig = field(
+        default_factory=lambda: RegimeConfig(
+            n_regimes=3, window_size=21, features=["returns", "volatility"]
+        )
+    )
 
     def __post_init__(self):
         """Validate configuration parameters"""
@@ -71,12 +80,17 @@ class RiskManager:
         self.config = config
         self.risk_free_rate = risk_free_rate
         self.weights = weights
+        self.regime_detector = MarketRegimeDetector(config.regime_config)
 
     def calculate_metrics(self, returns) -> Dict:
         """Enhanced risk metrics calculation"""
-        # Type validation first
+        # Convert Series to DataFrame if necessary
+        if isinstance(returns, pd.Series):
+            returns = pd.DataFrame(returns, columns=["Portfolio"])
+
+        # Type validation
         if not isinstance(returns, pd.DataFrame):
-            raise TypeError("Returns must be a pandas DataFrame")
+            raise TypeError("Returns must be a pandas DataFrame or Series")
 
         # DataFrame validation
         if len(returns.columns) == 0:
@@ -146,6 +160,26 @@ class RiskManager:
                 "market_regime": self._detect_market_regime(portfolio_returns),
                 "risk_decomposition": (
                     self._decompose_risk(returns) if len(returns.columns) > 1 else None
+                ),
+            }
+        )
+
+        # Update regime-specific metrics
+        regime_info = self._detect_market_regime(portfolio_returns)
+        regime_mask = regime_info["regime_mask"]  # Use the mask from regime_info
+
+        # Add regime-conditional metrics
+        metrics.update(
+            {
+                "market_regime": regime_info,
+                "regime_volatility": self._calculate_volatility(
+                    portfolio_returns[regime_mask]
+                ),
+                "regime_var": self._calculate_var(
+                    portfolio_returns[regime_mask], self.config.confidence_level
+                ),
+                "regime_es": self._calculate_expected_shortfall(
+                    portfolio_returns[regime_mask], self.config.confidence_level
                 ),
             }
         )
@@ -325,26 +359,39 @@ class RiskManager:
         return right_tail / left_tail if left_tail != 0 else np.inf
 
     def _detect_market_regime(self, returns: pd.DataFrame) -> Dict[str, float]:
-        """Enhanced market regime detection"""
-        # Convert DataFrame to Series if needed
+        """Enhanced market regime detection using HMM"""
+        # Convert DataFrame to Series if necessary
         if isinstance(returns, pd.DataFrame):
-            returns = returns.mean(axis=1)
+            if len(returns.columns) == 1:
+                returns = returns.iloc[:, 0]  # Get the first column as Series
+            else:
+                returns = returns.mean(axis=1)  # Take mean across columns
 
-        vol_ratio = self._calculate_volatility_ratio(returns)
-        skew = float(stats.skew(returns))  # Convert to float
-        kurt = float(stats.kurtosis(returns))  # Convert to float
+        # Get regime predictions
+        regimes = self.regime_detector.fit_predict(returns)
 
-        regimes = {
-            "volatility_regime": (
-                "high" if vol_ratio > 1.5 else "low" if vol_ratio < 0.7 else "normal"
-            ),
-            "skewness_regime": (
-                "negative" if skew < -0.5 else "positive" if skew > 0.5 else "neutral"
-            ),
-            "tail_regime": "fat" if kurt > 3 else "thin" if kurt < -0.5 else "normal",
-            "confidence": min(1.0, max(0.6, 1 - abs(vol_ratio - 1))),
+        # Get regime statistics
+        regime_stats = self.regime_detector.get_regime_stats(returns, regimes)
+
+        # Get validation metrics
+        validation = self.regime_detector.validate_model(returns, regimes)
+
+        # Get transition probabilities
+        transitions = self.regime_detector.get_transition_matrix()
+
+        current_regime = regimes.iloc[-1]
+
+        # Create boolean mask for the current regime
+        regime_mask = regimes == current_regime
+
+        return {
+            "current_regime": current_regime,
+            "regime_mask": regime_mask,  # Add mask to the output
+            "regime_stats": regime_stats,
+            "model_validation": validation,
+            "transition_probs": transitions.to_dict(),
+            "confidence": validation["regime_persistence"],
         }
-        return regimes
 
     def _decompose_risk(self, returns: pd.DataFrame) -> Dict[str, pd.Series]:
         """Decompose portfolio risk into components"""
