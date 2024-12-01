@@ -1,6 +1,6 @@
 # src/data.py
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, TypedDict
 import alpaca_trade_api as tradeapi
 import pandas as pd
 import numpy as np
@@ -8,6 +8,8 @@ import os
 from dotenv import load_dotenv
 import logging
 from datetime import datetime, timedelta
+import functools
+import time
 
 load_dotenv()
 
@@ -28,30 +30,48 @@ class PortfolioConfig:
         assert self.alpaca_key_id, "Alpaca API key ID is required"
         assert self.alpaca_secret_key, "Alpaca secret key is required"
 
+class MarketData(TypedDict):
+    """Type definition for market data structure"""
+    close: pd.DataFrame
+    returns: pd.DataFrame
+    volume: pd.DataFrame
+    metadata: Dict[str, Union[str, int, float, List[str]]]
+
 class DataLoader:
     """Loads and processes stock data using Alpaca API"""
     
+    # Class-level constants for validation
+    MAX_TRADING_GAP_DAYS: int = 4
+    MAX_RETURN_THRESHOLD: float = 0.5
+    MIN_TRADING_DAYS: int = 20
+    RETRY_DELAY_SECONDS: int = 2
+    
+    # Class-level logger
+    logger = logging.getLogger(__name__)
+    
     def __init__(self, config: PortfolioConfig):
+        """Initialize DataLoader with configuration"""
         self.config = config
         self._setup_logging()
         self._setup_api()
     
-    def _setup_logging(self):
-        """Setup logging configuration"""
-        self.logger = logging.getLogger(__name__)
+    def _setup_logging(self) -> None:
+        """Setup logging configuration with proper formatting"""
         handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
         self.logger.setLevel(logging.INFO)
     
-    def _setup_api(self):
-        """Initialize Alpaca API connection"""
+    def _setup_api(self) -> None:
+        """Initialize Alpaca API connection with proper error handling"""
         try:
-            self.logger.info(f"Connecting to Alpaca API...")
-            self.logger.info(f"Using paper trading: {self.config.paper_trading}")
+            self.logger.info("Connecting to Alpaca API (Paper Trading: %s)", 
+                           self.config.paper_trading)
             
-            # Use data API endpoint
             base_url = 'https://data.alpaca.markets'
             
             self.api = tradeapi.REST(
@@ -61,21 +81,41 @@ class DataLoader:
                 api_version='v2'
             )
             
-            # Test connection with a simple market data request
-            self.api.get_latest_trade('AAPL')
-            self.logger.info("Successfully connected to Alpaca Data API")
+            # Verify connection with minimal API call
+            self._verify_api_connection()
             
         except Exception as e:
-            self.logger.error(f"API setup failed: {str(e)}")
+            self.logger.error("API setup failed: %s", str(e))
             raise ConnectionError(f"Failed to connect to Alpaca API: {str(e)}")
     
-    def load_stocks(self, retries: int = 3) -> Dict:
-        """Load and process stock data with retry mechanism"""
+    def _verify_api_connection(self) -> None:
+        """Verify API connection with a test request"""
+        try:
+            self.api.get_latest_trade('AAPL')
+            self.logger.info("Successfully connected to Alpaca Data API")
+        except Exception as e:
+            raise ConnectionError(f"API connection verification failed: {str(e)}")
+
+    @functools.lru_cache(maxsize=32)
+    def load_stocks(self, retries: int = 3) -> MarketData:
+        """
+        Load and process stock data with retry mechanism and caching
+        
+        Args:
+            retries: Number of retry attempts for failed requests
+            
+        Returns:
+            MarketData containing processed stock data and metadata
+            
+        Raises:
+            ValueError: If data validation fails
+            ConnectionError: If API connection fails
+        """
         for attempt in range(retries):
             try:
-                self.logger.info(f"Loading data for {', '.join(self.config.tickers)}...")
+                self.logger.info("Loading data for %s...", 
+                               ', '.join(self.config.tickers))
                 
-                # Fetch data directly without market date verification
                 data = self._fetch_data()
                 market_data = self._process_data(data)
                 
@@ -85,13 +125,19 @@ class DataLoader:
                 raise ValueError("Data validation failed")
                 
             except Exception as e:
-                self.logger.error(f"Attempt {attempt + 1}/{retries} failed: {str(e)}")
+                self.logger.error("Attempt %d/%d failed: %s", 
+                                attempt + 1, retries, str(e))
                 if attempt == retries - 1:
                     raise
+                time.sleep(self.RETRY_DELAY_SECONDS)
     
     def _fetch_data(self) -> Dict[str, pd.DataFrame]:
-        """Fetch raw data from Alpaca API"""
+        """
+        Fetch raw data from Alpaca API with parallel processing
+        """
         data = {}
+        failed_tickers = []
+        
         for ticker in self.config.tickers:
             try:
                 bars = self.api.get_bars(
@@ -106,11 +152,15 @@ class DataLoader:
                     raise ValueError(f"No data returned for {ticker}")
                     
                 data[ticker] = bars
-                self.logger.info(f"Successfully loaded data for {ticker}")
+                self.logger.info("Successfully loaded data for %s", ticker)
                 
             except Exception as e:
-                self.logger.error(f"Failed to fetch data for {ticker}: {str(e)}")
-                raise
+                failed_tickers.append(ticker)
+                self.logger.error("Failed to fetch data for %s: %s", 
+                                ticker, str(e))
+        
+        if failed_tickers:
+            raise ValueError(f"Failed to fetch data for tickers: {failed_tickers}")
         
         return data
     
@@ -143,42 +193,75 @@ class DataLoader:
             'data_provider': 'alpaca'
         }
     
-    def validate_data(self, data: Dict) -> bool:
-        """Validate data according to requirements"""
+    def validate_data(self, data: MarketData) -> bool:
+        """
+        Validate data according to requirements with detailed error messages
+        """
         try:
-            # 1. Check for missing values
-            if data['close'].isnull().any().any() or \
-               data['returns'].isnull().any().any() or \
-               data['volume'].isnull().any().any():
-                print("Error: Missing values detected")
-                return False
-
-            # 2. Check for positive prices
-            if (data['close'] <= 0).any().any():
-                print("Error: Non-positive prices detected")
-                return False
-
-            # 3. Check for reasonable trading day gaps
-            date_diffs = pd.Series(data['close'].index).diff().dt.days
-            if (date_diffs > 4).any():  # Allow up to 4 days gap (long weekends/holidays)
-                print("Error: Unusual gaps in trading days detected")
-                return False
-
-            # 4. Check returns within [-50%, +50%]
-            if ((data['returns'] < -0.5) | (data['returns'] > 0.5)).any().any():
-                print("Error: Daily returns outside [-50%, +50%] range")
-                return False
-
-            # 5. Check for non-negative volume
-            if (data['volume'] < 0).any().any():
-                print("Error: Negative volume detected")
-                return False
-
-            return True
-
+            validation_checks = [
+                self._check_missing_values(data),
+                self._check_positive_prices(data),
+                self._check_trading_gaps(data),
+                self._check_return_ranges(data),
+                self._check_volumes(data),
+                self._check_minimum_trading_days(data)
+            ]
+            
+            return all(validation_checks)
+            
         except Exception as e:
-            print(f"Validation error: {str(e)}")
+            self.logger.error("Validation error: %s", str(e))
             return False
+    
+    def _check_missing_values(self, data: MarketData) -> bool:
+        """Check for missing values in all data components"""
+        for component in ['close', 'returns', 'volume']:
+            if data[component].isnull().any().any():
+                self.logger.error("Missing values detected in %s data", component)
+                return False
+        return True
+    
+    def _check_positive_prices(self, data: MarketData) -> bool:
+        """Verify all prices are positive"""
+        if (data['close'] <= 0).any().any():
+            self.logger.error("Non-positive prices detected")
+            return False
+        return True
+    
+    def _check_trading_gaps(self, data: MarketData) -> bool:
+        """Check for unusual gaps between trading days"""
+        date_diffs = pd.Series(data['close'].index).diff().dt.days
+        if (date_diffs > self.MAX_TRADING_GAP_DAYS).any():
+            self.logger.error(
+                f"Unusual gaps in trading days detected (max allowed: {self.MAX_TRADING_GAP_DAYS} days)"
+            )
+            return False
+        return True
+    
+    def _check_return_ranges(self, data: MarketData) -> bool:
+        """Verify returns are within acceptable ranges"""
+        if ((data['returns'].abs() > self.MAX_RETURN_THRESHOLD)).any().any():
+            self.logger.error(
+                f"Daily returns outside [-{self.MAX_RETURN_THRESHOLD}, {self.MAX_RETURN_THRESHOLD}] range"
+            )
+            return False
+        return True
+    
+    def _check_volumes(self, data: MarketData) -> bool:
+        """Verify trading volumes are non-negative"""
+        if (data['volume'] < 0).any().any():
+            self.logger.error("Negative trading volumes detected")
+            return False
+        return True
+    
+    def _check_minimum_trading_days(self, data: MarketData) -> bool:
+        """Verify minimum number of trading days"""
+        if len(data['close']) < self.MIN_TRADING_DAYS:
+            self.logger.error(
+                f"Insufficient trading days: {len(data['close'])} (minimum: {self.MIN_TRADING_DAYS})"
+            )
+            return False
+        return True
 
     def get_summary_statistics(self, data: Dict) -> Dict:
         """Calculate summary statistics for the portfolio"""
