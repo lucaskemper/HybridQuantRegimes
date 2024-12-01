@@ -17,7 +17,7 @@ hmmlearn>=0.3.3
 matplotlib>=3.4.0
 seaborn>=0.11.0
 plotly>=5.0.0
-mplfinance>=0.12.0
+mplfinance>=0.12.9b7
 
 # Progress and Utils
 tqdm>=4.62.0
@@ -54,3 +54,9 @@ nbconvert>=6.4.0
 # Project Packaging
 setuptools>=60.0.0
 wheel>=0.37.0
+
+# Environment
+python-dotenv>=0.19.0
+
+# Additional Dependencies
+pygments>=2.10.0
