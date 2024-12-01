@@ -267,8 +267,8 @@ class RiskManager:
 
     def _perform_stress_test(self, returns: pd.Series) -> Dict:
         """Perform basic stress testing"""
-        monthly_returns = returns.resample("ME").sum()
-        quarterly_returns = returns.resample("QE").sum()
+        monthly_returns = returns.resample("M").sum()
+        quarterly_returns = returns.resample("Q").sum()
 
         return {
             "worst_month": monthly_returns.min(),
