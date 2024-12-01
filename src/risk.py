@@ -11,7 +11,7 @@ from scipy.stats import norm
 
 @dataclass
 class RiskConfig:
-    """Risk management configuration parameters"""
+    """Enhanced risk management configuration"""
 
     # Required parameters with defaults
     confidence_level: float = 0.95
@@ -19,9 +19,19 @@ class RiskConfig:
     volatility_target: float = 0.15
 
     # Optional parameters with defaults
-    weights: Optional[List[float]] = None
-    rolling_windows: List[int] = field(default_factory=lambda: [21, 63])
-    position_limit: float = 0.40
+    var_calculation_method: str = (
+        "historical"  # ['historical', 'parametric', 'monte_carlo']
+    )
+    es_calculation_method: str = "historical"
+    regime_detection_method: str = (
+        "volatility"  # ['volatility', 'markov', 'clustering']
+    )
+    stress_scenarios: List[str] = field(
+        default_factory=lambda: ["2008_crisis", "covid_crash", "tech_bubble"]
+    )
+    correlation_regime: bool = True
+    tail_risk_measure: str = "evt"  # ['evt', 'copula', 'empirical']
+    _weights: Optional[List[float]] = field(default=None, repr=False)
 
     def __post_init__(self):
         """Validate configuration parameters"""
@@ -31,6 +41,22 @@ class RiskConfig:
             raise ValueError("Max drawdown limit must be positive")
         if self.volatility_target <= 0:
             raise ValueError("Volatility target must be positive")
+
+    @property
+    def weights(self) -> Optional[List[float]]:
+        return self._weights
+
+    @weights.setter
+    def weights(self, value: Optional[List[float]]):
+        """Validate and set portfolio weights"""
+        if value is not None:
+            if not isinstance(value, (list, np.ndarray)):
+                raise TypeError("Weights must be a list or numpy array")
+            if any(w < 0 for w in value):
+                raise ValueError("Weights cannot be negative")
+            if not np.isclose(sum(value), 1.0):
+                raise ValueError("Weights must sum to 1.0")
+        self._weights = value
 
 
 class RiskManager:
@@ -46,13 +72,20 @@ class RiskManager:
         self.risk_free_rate = risk_free_rate
         self.weights = weights
 
-    def calculate_metrics(self, returns: pd.DataFrame) -> Dict:
+    def calculate_metrics(self, returns) -> Dict:
         """Enhanced risk metrics calculation"""
-        # Validate input
+        # Type validation first
+        if not isinstance(returns, pd.DataFrame):
+            raise TypeError("Returns must be a pandas DataFrame")
+
+        # DataFrame validation
         if len(returns.columns) == 0:
             raise ValueError("Returns DataFrame must have at least one column")
         if len(returns.index) == 0:
             raise ValueError("Returns DataFrame must have at least one row")
+
+        # Data quality validation
+        self._validate_returns(returns)
 
         weights = (
             self.config.weights
@@ -130,8 +163,21 @@ class RiskManager:
         return returns.std() * np.sqrt(252)
 
     def _calculate_var(self, returns: pd.Series, confidence_level: float) -> float:
-        """Calculate Value at Risk"""
-        return np.percentile(returns, (1 - confidence_level) * 100)
+        """Enhanced VaR calculation with multiple methodologies"""
+        if self.config.var_calculation_method == "parametric":
+            return self._calculate_parametric_var(returns, confidence_level)
+        elif self.config.var_calculation_method == "monte_carlo":
+            return self._calculate_monte_carlo_var(returns, confidence_level)
+        else:
+            return np.percentile(returns, (1 - confidence_level) * 100)
+
+    def _calculate_parametric_var(
+        self, returns: pd.Series, confidence_level: float
+    ) -> float:
+        """Calculate parametric VaR assuming normal distribution"""
+        mu = returns.mean()
+        sigma = returns.std()
+        return norm.ppf(1 - confidence_level, mu, sigma)
 
     def _calculate_expected_shortfall(
         self, returns: pd.Series, confidence_level: float
@@ -168,13 +214,13 @@ class RiskManager:
 
         return rolling_vol
 
-    def _calculate_volatility_ratio(self, returns: pd.Series) -> float:
+    def _calculate_volatility_ratio(self, returns: pd.DataFrame) -> float:
         """Calculate ratio of recent to historical volatility"""
-        recent_returns = returns.iloc[-21:]
-        historical_returns = returns.iloc[:-21]
+        if isinstance(returns, pd.DataFrame):
+            returns = returns.mean(axis=1)  # Convert to series if DataFrame
 
-        recent_vol = recent_returns.std() * np.sqrt(252)
-        historical_vol = historical_returns.std() * np.sqrt(252)
+        recent_vol = returns[-21:].std() * np.sqrt(252)  # Last month
+        historical_vol = returns.std() * np.sqrt(252)  # Full period
 
         return recent_vol / historical_vol if historical_vol != 0 else 1.0
 
@@ -278,11 +324,15 @@ class RiskManager:
         right_tail = np.abs(np.percentile(returns, 95))
         return right_tail / left_tail if left_tail != 0 else np.inf
 
-    def _detect_market_regime(self, returns: pd.Series) -> Dict[str, float]:
+    def _detect_market_regime(self, returns: pd.DataFrame) -> Dict[str, float]:
         """Enhanced market regime detection"""
+        # Convert DataFrame to Series if needed
+        if isinstance(returns, pd.DataFrame):
+            returns = returns.mean(axis=1)
+
         vol_ratio = self._calculate_volatility_ratio(returns)
-        skew = stats.skew(returns)
-        kurt = stats.kurtosis(returns)
+        skew = float(stats.skew(returns))  # Convert to float
+        kurt = float(stats.kurtosis(returns))  # Convert to float
 
         regimes = {
             "volatility_regime": (
@@ -331,18 +381,48 @@ class RiskManager:
     @staticmethod
     def _validate_returns(returns: pd.DataFrame) -> None:
         """Enhanced return data validation"""
-        if not isinstance(returns, pd.DataFrame):
-            raise TypeError("Returns must be a pandas DataFrame")
-
         # Check for missing values
         if returns.isna().any().any():
-            warnings.warn(
-                "Returns contain missing values. Consider handling them first."
-            )
+            warnings.warn("Returns contain missing values", UserWarning)
 
-        # Check for extreme values
+        # Check for extreme values (z-score > 5)
         z_scores = np.abs(stats.zscore(returns, nan_policy="omit"))
         if (z_scores > 5).any().any():
-            warnings.warn(
-                "Returns contain extreme values (z-score > 5). Consider investigating outliers."
-            )
+            warnings.warn("Returns contain extreme values (z-score > 5)", UserWarning)
+
+    def _calculate_conditional_metrics(self, returns: pd.Series) -> Dict:
+        """Calculate regime-dependent risk metrics"""
+        regime = self._detect_market_regime(returns)
+        return {
+            f"{regime}_volatility": self._calculate_volatility(returns),
+            f"{regime}_var": self._calculate_var(returns, self.config.confidence_level),
+            f"{regime}_es": self._calculate_expected_shortfall(
+                returns, self.config.confidence_level
+            ),
+        }
+
+    def _extreme_value_analysis(self, returns: pd.Series) -> Dict:
+        """Perform Extreme Value Theory analysis"""
+        threshold = np.percentile(returns, 5)  # 5th percentile as threshold
+        exceedances = returns[returns < threshold]
+
+        # Fit Generalized Pareto Distribution
+        from scipy.stats import genpareto
+
+        shape, loc, scale = genpareto.fit(abs(exceedances))
+
+        return {
+            "tail_index": shape,
+            "scale": scale,
+            "threshold": threshold,
+            "exceedance_rate": len(exceedances) / len(returns),
+        }
+
+    def _calculate_dynamic_correlation(self, returns: pd.DataFrame) -> pd.DataFrame:
+        """Calculate regime-dependent correlation matrix"""
+        regime = self._detect_market_regime(returns)
+        window = 21 if regime["volatility_regime"] == "high" else 63
+
+        # Calculate pairwise correlations
+        corr_matrix = returns.corr()
+        return corr_matrix
