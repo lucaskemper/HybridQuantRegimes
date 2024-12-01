@@ -3,9 +3,14 @@
 Current state:
 Data : Working
 Monte_carlo : Working
-Visualization : Check
+Visualization : Good For Now
 Signals : Not Working
+Risk: Working on it (L)
 ...
+Comment: you need alpaca API key to use the software (see .env)
+## Authors and Institutional Affiliation
+- **Lucas Kemper** - MscF Student, HEC Lausanne
+- **Antonio Schoeffel** -  MscF Student, HEC Lausanne
 ## Setup Guide
 
 ### Prerequisites
@@ -22,7 +27,7 @@ git clone <repository-url>
 cd <repository-directory>
 
 # Create and activate virtual environment
-python -m venv venv
+python3 -m venv venv
 
 # Windows
 venv\Scripts\activate
@@ -159,10 +164,13 @@ results = risk_manager.analyze_portfolio(market_data)
 2. McNeil, A. J., Frey, R., & Embrechts, P. (2015). "Quantitative Risk Management: Concepts, Techniques and Tools." *Princeton University Press*. ISBN: 978-0691166278
 
 3. Bollerslev, T. (1986). "Generalized Autoregressive Conditional Heteroskedasticity." *Journal of Econometrics*, 31(3), 307-327. https://doi.org/10.1016/0304-4076(86)90063-1
+5.  McNeil, A.J., Frey, R. (2000). "Estimation of Tail-Related Risk Measures"
+3. Hamilton, J.D. (1989). "A New Approach to the Economic Analysis of Time Series"
+4. Ang, A., Bekaert, G. (2002). "Regime Switches in Interest Rates"
+5. Maïnassara, Y.B., Kadmiri O., Saussereau B. (2022). "Estimation of multivariate asymmetric power GARCH models"
+6. Cunchala, A. (2024). "A Basic Overview of Various Stochastic Approaches to Financial Modeling With Examples"
 
-## Authors and Institutional Affiliation
-- **Lucas Kemper** - MscF Student, HEC Lausanne
-- **Antonio Schoeffel** -  MscF Student, HEC Lausanne
+
 
 ## License and Distribution
 This research implementation is distributed under the MIT License - see [LICENSE.md](LICENSE.md)
