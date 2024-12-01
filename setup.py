@@ -6,9 +6,9 @@ setup(
     packages=find_packages(),
     install_requires=[
         # Core Data Processing
-        "numpy>=1.21.0",
-        "pandas>=1.3.0",
-        "scipy>=1.7.0",
+        "numpy>=1.21.0,<2.0.0",
+        "pandas>=1.3.0,<2.0.0",
+        "scipy>=1.7.0,<2.0.0",
         # Financial Data
         "yfinance>=0.1.63",
         "pandas-datareader>=0.10.0",
@@ -18,7 +18,6 @@ setup(
         "arch>=5.0.0",
         "hmmlearn>=0.3.3",
         "statsmodels>=0.13.0",
-        "scipy-stats-hmm>=0.1.0",
         # Visualization
         "matplotlib>=3.4.0",
         "seaborn>=0.11.0",
