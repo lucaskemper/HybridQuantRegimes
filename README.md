@@ -1,20 +1,25 @@
 # Quantitative Portfolio Risk Analysis System: A Framework for Market Regime Detection and Risk Assessment in Semiconductor Equities
-(Classwork -due december, scope / content might change at any time)  v0.1
-Current state:
-Data : Working
-Monte_carlo : Working
-Visualization : Good For Now
-Signals : Not Working
-Risk: Working on it (L)
+(Classwork -due december, scope / content might change at any time)  v0.3
+## Project Status
+
+| Component      | Status    | Notes                               |
+|---------------|-----------|-------------------------------------|
+| Data Pipeline | ✅ Working | Core functionality implemented     |
+| Monte Carlo   | ✅ Working | Module works as expected        |
+| Visualization | ⚠️ Working | Planned  improvements          |
+| Signals       | ❌ Pending | Development not started            |
+| Risk Analysis | 🏗️ WIP    | Under active development           |
+| Regime Detection| ✅ Working | Core algorithms implemented      |
+
+**Note**: Alpaca API key required for market data access. Configure in `.env` file.
 ...
-Comment: you need alpaca API key to use the software (see .env)
 ## Authors and Institutional Affiliation
 - **Lucas Kemper** - MscF Student, HEC Lausanne
 - **Antonio Schoeffel** -  MscF Student, HEC Lausanne
 ## Setup Guide
 
 ### Prerequisites
-- Python 3.8+
+- Python 3.10+
 - pip (Python package installer)
 - Git (optional)
 
