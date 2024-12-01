@@ -27,7 +27,7 @@ git clone <repository-url>
 cd <repository-directory>
 
 # Create and activate virtual environment
-python3 -m venv venv
+python3.10 -m venv venv
 
 # Windows
 venv\Scripts\activate
