@@ -8,7 +8,7 @@ portfolio:
 
 # Data Provider Settings
 data_provider:
-  source: 'alpaca'  
+  source: 'alpaca'  # only alpaca is supported in this build
   paper_trading: true
   cache:
     enabled: true
