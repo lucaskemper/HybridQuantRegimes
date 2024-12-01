@@ -3,9 +3,10 @@
 Current state:
 Data : Working
 Monte_carlo : Working
-Visualization : Good For Now
+Visualization : Working (will need improvements)
 Signals : Not Working
 Risk: Working on it (L)
+Regime: Working
 ...
 Comment: you need alpaca API key to use the software (see .env)
 ## Authors and Institutional Affiliation
