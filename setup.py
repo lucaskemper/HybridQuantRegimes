@@ -81,7 +81,7 @@ setup(
     package_data={
         "trading_strategy": ["*.json", "*.yaml", "*.yml"],
     },
-    author="Lucas Kemper & Antonio Schoeffel",
+    author="Lucas Kemper"
     author_email="contact@lucaskemper.com",
     description="A sophisticated trading strategy system with Monte Carlo simulation",
     long_description=open("README.md").read(),
