@@ -15,7 +15,6 @@
 ...
 ## Authors and Institutional Affiliation
 - **Lucas Kemper** - MscF Student, HEC Lausanne
-- **Antonio Schoeffel** -  MscF Student, HEC Lausanne
 ## Setup Guide
 
 ### Prerequisites
