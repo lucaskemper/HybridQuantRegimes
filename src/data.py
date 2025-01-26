@@ -6,9 +6,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 import pandas as pd
-from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
-from alpaca.data.timeframe import TimeFrame
+import yfinance as yf  # New import
 from dotenv import load_dotenv
 
 # Set up logging
@@ -43,7 +41,7 @@ class PortfolioConfig:
 
 
 class DataLoader:
-    """Data loading and preprocessing using Alpaca"""
+    """Data loading and preprocessing using Yahoo Finance"""
 
     def __init__(self, config: PortfolioConfig):
         self.config = config
@@ -52,7 +50,7 @@ class DataLoader:
         # Load environment variables
         load_dotenv()
 
-        # Initialize Alpaca client with correct env variable names
+        # Initialize Yahoo Finance client
         self.api_key = os.getenv("ALPACA_KEY_ID")  # Changed from ALPACA_API_KEY
         self.api_secret = os.getenv("ALPACA_SECRET_KEY")
 
@@ -64,38 +62,25 @@ class DataLoader:
                 "Please check your .env file contains ALPACA_KEY_ID and ALPACA_SECRET_KEY"
             )
 
-        self.client = StockHistoricalDataClient(
-            api_key=self.api_key, secret_key=self.api_secret
-        )
-        self.logger.info("Connecting to Alpaca API (Paper Trading: True)")
-
     def load_data(self) -> Dict[str, pd.DataFrame]:
-        """Load and preprocess market data from Alpaca"""
+        """Load and preprocess market data from Yahoo Finance"""
         try:
             self.logger.info("Loading market data...")
 
             # Convert dates to datetime
-            start_dt = pd.Timestamp(self.config.start_date).tz_localize("UTC")
-            end_dt = pd.Timestamp(self.config.end_date).tz_localize("UTC")
+            start_dt = self.config.start_date
+            end_dt = self.config.end_date
 
-            # Request parameters
-            request_params = StockBarsRequest(
-                symbol_or_symbols=self.config.tickers,
-                timeframe=TimeFrame.Day,
-                start=start_dt,
-                end=end_dt,
-            )
-
-            # Get the data
-            bars = self.client.get_stock_bars(request_params)
-
-            # Convert to DataFrame
-            df = bars.df
-
-            # Process the multi-level DataFrame
+            # Download data from Yahoo Finance
             prices = pd.DataFrame()
             for ticker in self.config.tickers:
-                prices[ticker] = df.loc[ticker]["close"]
+                ticker_data = yf.download(
+                    ticker,
+                    start=start_dt,
+                    end=end_dt,
+                    progress=False
+                )
+                prices[ticker] = ticker_data['Adj Close']
 
             # Calculate returns
             returns = prices.pct_change().dropna()
