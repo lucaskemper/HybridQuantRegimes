@@ -1,0 +1,85 @@
+\section{Methodology}
+
+\subsection{Data Description}
+I analyze daily return data from four major semiconductor companies (NVDA, AMD, INTC, ASML) from January 2017 to December 2023, comprising 1,759 trading days. The portfolio weights are allocated as follows: NVDA (40\%), AMD (30\%), INTC (15\%), and ASML (15\%). This weighting scheme reflects both market capitalization and liquidity considerations \citep{alexander2008market}.
+
+\subsection{Hybrid Regime Detection Framework}
+
+\subsubsection{Base Configuration}
+The regime detection framework \citep{ang2002regime} is configured with the following parameters, as implemented in the codebase:
+\begin{itemize}
+    \item Number of regimes: 3 (Low, Medium, High Volatility)
+    \item Window size: 21 trading days
+    \item Minimum regime duration: 21 days
+    \item Smoothing window: 5 days
+    \item Feature set: returns, volatility, momentum
+\end{itemize}
+
+\subsubsection{Hidden Markov Model Component}
+The HMM implementation \citep{hamilton1989new} serves as the foundation of the regime detection system, utilizing:
+\begin{itemize}
+    \item Volatility-based state identification
+    \item Empirical quantile thresholds (33rd and 67th percentiles)
+    \item Maximum likelihood estimation for transition probabilities
+    \item Robust fallback mechanism for model convergence
+\end{itemize}
+
+\subsubsection{LSTM Enhancement}
+The deep learning component \citep{hochreiter1997long, fischer2018deep} augments the base HMM with:
+\begin{itemize}
+    \item Sequential feature processing
+    \item LSTM implementation with configurable parameters
+    \item Standard optimization parameters
+    \item Binary classification output
+\end{itemize}
+
+\subsubsection{Regime Smoothing}
+The framework implements a smoothing mechanism to reduce spurious regime transitions:
+\begin{equation}
+R_t = \text{mode}(R_{t-w}, ..., R_t, ..., R_{t+w})
+\end{equation}
+where $w$ is the smoothing window size (default: 5 days).
+
+\subsection{Risk Assessment Framework}
+
+\subsubsection{Regime-Dependent Risk Metrics}
+For each identified regime \citep{mcneil2000estimation}, I calculate:
+\begin{itemize}
+    \item Value at Risk (95\% confidence level)
+    \item Expected Shortfall \citep{artzner1999coherent}
+    \item Volatility using 21-day and 63-day windows
+    \item Information ratios and regime-specific Sharpe ratios
+\end{itemize}
+
+\subsubsection{Position Sizing}
+Position sizes are determined through a dynamic scaling approach:
+\begin{equation}
+P_t = \min(\max(P_b \cdot v_t, P_{min}), P_{max})
+\end{equation}
+where:
+\begin{itemize}
+    \item $P_b$ is the base position size
+    \item $v_t$ is the volatility scaling factor
+    \item $P_{min}, P_{max}$ are position limits
+\end{itemize}
+
+\subsection{Implementation Status}
+The current implementation represents a proof-of-concept system developed in Python 3.10+:
+
+\subsubsection{Core Components}
+\begin{itemize}
+    \item TensorFlow for basic LSTM implementation
+    \item hmmlearn for HMM modeling
+    \item pandas and numpy for data processing
+    \item scikit-learn for preprocessing and validation
+\end{itemize}
+
+\subsubsection{Current Limitations}
+\begin{itemize}
+    \item Basic integration of HMM and LSTM methods
+    \item Initial test coverage and validation framework
+    \item Limited error handling capabilities
+    \item Complex result structures requiring detailed knowledge
+\end{itemize}
+
+The implementation provides a foundation for future development while demonstrating the feasibility of the hybrid approach.

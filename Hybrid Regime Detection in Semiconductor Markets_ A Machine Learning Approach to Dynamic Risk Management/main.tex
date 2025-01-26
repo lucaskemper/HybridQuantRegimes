@@ -1,0 +1,141 @@
+\documentclass[12pt,a4paper]{article}
+
+% Core packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}  % Better typography
+\usepackage{geometry}   % Page margins
+\usepackage{setspace}   % Line spacing
+\usepackage{ragged2e}   % Better text alignment
+
+% Math and graphics packages
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{subcaption}  % For subfigures
+
+% Bibliography and references
+\usepackage[style=apa,backend=biber,natbib=true]{biblatex}
+\addbibresource{references.bib}
+\usepackage[colorlinks=true,allcolors=blue]{hyperref}
+\usepackage{doi}  % For DOI links
+
+% Custom packages for academic papers
+\usepackage{authblk}  % Author affiliations
+\usepackage{abstract} % Enhanced abstract
+\usepackage{titlesec} % Section formatting
+\usepackage{enumitem} % List formatting
+
+% Page geometry and layout
+\geometry{
+    top=2.5cm,
+    bottom=2.5cm,
+    left=2.5cm,
+    right=2.5cm,
+    includehead,
+    includefoot
+}
+
+% Document styling
+\setstretch{1.5}  % 1.5 line spacing
+\setlength{\parskip}{1em}  % Paragraph spacing
+\setlength{\parindent}{0pt} % No paragraph indentation
+
+% Header and footer setup
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}  % Clear default header/footer
+\fancyhead[L]{This paper is a work in progress}
+\fancyfoot[C]{Page \thepage}
+\fancyfoot[L]{Lucas Kemper}
+\fancyfoot[R]{\today}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+% Title formatting
+\title{
+    \vspace{-2em}  % Reduce top margin
+    \LARGE\textbf{HMM-LSTM Hybrid Detection of Market Regimes:\\[0.5em]
+    Evidence from Semiconductor Equity Markets}
+    \vspace{-0.5em}
+}
+
+% Author and affiliation
+\author[1]{Lucas Kemper\thanks{\href{https://orcid.org/0009-0006-4142-6122}{\textcolor{blue}{\faOrcid\space\texttt{0009-0006-4142-6122}}}}}
+\affil[1]{MscF Student, HEC Lausanne, University of Lausanne}
+\date{\today}
+
+% Section formatting
+\titleformat{\section}
+  {\Large\bfseries}  % Format
+  {\thesection.}     % Label
+  {0.5em}            % Separation
+  {}                 % Before code
+
+\titleformat{\subsection}
+  {\large\bfseries}
+  {\thesubsection.}
+  {0.5em}
+  {}
+
+% Custom abstract style
+\renewenvironment{abstract}{
+    \begin{center}
+        \bfseries\large Abstract
+    \end{center}
+    \quotation\small
+}{\endquotation}
+
+% Begin document
+\begin{document}
+
+% Title page
+\maketitle
+
+% Working paper disclaimer
+\begin{center}
+\large\textbf{Working Paper -- Please do not cite without permission}
+\vspace{1em}
+
+\normalsize
+This version: \today\\
+First version: November 2024
+
+\vspace{1em}
+\textit{Contact: \href{mailto:lucas.kemper@unil.ch}{\texttt{lucas.kemper@unil.ch}}}
+\end{center}
+
+% Page break before abstract
+\newpage
+
+% Abstract
+\begin{abstract}
+\input{sections/abstract}
+\end{abstract}
+
+% Keywords and JEL codes
+\vspace{1em}
+\noindent\textbf{Keywords:} Market Regimes; Hidden Markov Models; Deep Learning; Risk Management; Semiconductor Industry; Portfolio Management; LSTM Networks
+
+\vspace{0.5em}
+\noindent\textbf{JEL Classification:}
+\begin{itemize}[noitemsep,labelindent=0pt,labelsep=1em]
+    \item[C45] Neural Networks and Related Topics
+    \item[C58] Financial Econometrics
+    \item[G11] Portfolio Choice; Investment Decisions
+    \item[G17] Financial Forecasting
+    \item[L63] Microelectronics; Semiconductors
+\end{itemize}
+
+% Main content
+\input{sections/introduction}
+\input{sections/methodology}
+\input{sections/empirical_results}
+\input{sections/discussion}
+\input{sections/conclusion}
+
+% References
+\printbibliography
+
+\end{document}

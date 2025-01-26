@@ -1,0 +1,113 @@
+\appendix
+\section{Technical Appendix}
+
+\subsection{Implementation Architecture}
+The hybrid regime detection framework consists of three main components:
+
+\subsubsection{Data Preprocessing Pipeline}
+\begin{itemize}
+    \item Daily return calculation using adjusted closing prices
+    \item Rolling window features (21-day and 63-day):
+        \begin{itemize}
+            \item Volatility (standard deviation)
+            \item Momentum (cumulative returns)
+            \item Trading volume metrics
+        \end{itemize}
+    \item Standardization using rolling z-scores
+\end{itemize}
+
+\subsubsection{HMM Base Model Configuration}
+\begin{itemize}
+    \item Number of states: 3 (Low, Medium, High Volatility)
+    \item Features: Returns, Volatility, Volume
+    \item Training window: 252 trading days
+    \item Initialization: k-means clustering
+    \item Convergence criteria: 1e-6 tolerance
+    \item Maximum iterations: 1000
+\end{itemize}
+
+\subsubsection{LSTM Enhancement Layer}
+\begin{itemize}
+    \item Architecture:
+        \begin{itemize}
+            \item Input layer: 5 features × 21 time steps
+            \item LSTM layer: 64 units, dropout 0.2
+            \item Dense layer: 32 units, ReLU activation
+            \item Output layer: 3 units, softmax activation
+        \end{itemize}
+    \item Training parameters:
+        \begin{itemize}
+            \item Batch size: 32
+            \item Epochs: 100 with early stopping
+            \item Optimizer: Adam (lr=0.001)
+            \item Loss function: Categorical crossentropy
+        \end{itemize}
+\end{itemize}
+
+\subsection{Regime Detection Algorithm}
+The regime detection process follows these steps:
+
+\begin{enumerate}
+    \item Base HMM prediction using volatility thresholds
+    \item LSTM prediction on rolling window data
+    \item Ensemble combination rules:
+        \begin{itemize}
+            \item If LSTM confidence > 0.8, use LSTM prediction
+            \item If HMM and LSTM agree, use common prediction
+            \item Otherwise, default to HMM prediction
+        \end{itemize}
+    \item Smoothing using 5-day mode filter
+\end{enumerate}
+
+\subsection{Risk Metrics Calculation}
+\begin{itemize}
+    \item Value at Risk (VaR):
+        \begin{itemize}
+            \item Method: Historical simulation
+            \item Confidence level: 95\%
+            \item Lookback period: 252 days
+        \end{itemize}
+    \item Expected Shortfall:
+        \begin{itemize}
+            \item Conditional mean of returns below VaR
+            \item Same parameters as VaR calculation
+        \end{itemize}
+    \item Regime-specific metrics:
+        \begin{itemize}
+            \item Separate calculations for each regime
+            \item Minimum 63 days of regime data required
+        \end{itemize}
+\end{itemize}
+
+\subsection{Portfolio Construction}
+\begin{itemize}
+    \item Base weights:
+        \begin{itemize}
+            \item NVDA: 40\% (market cap weight)
+            \item AMD: 30\% (market cap weight)
+            \item INTC: 15\% (liquidity adjusted)
+            \item ASML: 15\% (liquidity adjusted)
+        \end{itemize}
+    \item Position sizing rules:
+        \begin{itemize}
+            \item High volatility: 50\% of base weights
+            \item Medium volatility: 100\% of base weights
+            \item Low volatility: 125\% of base weights
+        \end{itemize}
+\end{itemize}
+
+\subsection{Validation Metrics}
+\begin{itemize}
+    \item Model selection:
+        \begin{itemize}
+            \item AIC and BIC for HMM
+            \item Validation loss for LSTM
+            \item Regime persistence rates
+        \end{itemize}
+    \item Performance metrics:
+        \begin{itemize}
+            \item Sharpe ratio (annualized)
+            \item Information ratio vs. PHLX Semiconductor Index
+            \item Maximum drawdown by regime
+        \end{itemize}
+\end{itemize}

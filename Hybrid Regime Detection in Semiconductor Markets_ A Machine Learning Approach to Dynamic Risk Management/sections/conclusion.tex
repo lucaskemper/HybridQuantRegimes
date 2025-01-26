@@ -1,0 +1,24 @@
+\section{Conclusion}
+In this paper, I present an approach combining HMM \citep{hamilton1989new} and LSTM \citep{hochreiter1997long} methodologies for regime detection in semiconductor markets. The empirical results demonstrate the framework's effectiveness, achieving a Sharpe ratio of 0.73 and Information ratio of 0.68, with regime persistence rates exceeding 80% across all market states \citep{guidolin2011regime}.
+
+The main contributions include:
+\begin{itemize}
+    \item Implementation of a hybrid regime detection approach combining HMM and LSTM with robust fallback mechanisms \citep{fischer2018deep}
+    \item Application of comprehensive risk metrics including regime-dependent VaR and Expected Shortfall \citep{mcneil2000estimation}
+    \item Empirical validation using semiconductor market data with statistically significant regime identification \citep{ang2002regime}
+    \item Development of a modular architecture supporting multiple validation metrics and smooth regime transitions \citep{mcneil2015quantitative}
+\end{itemize}
+
+Future research directions include the integration of alternative data sources, exploration of additional machine learning architectures, and development of real-time regime detection capabilities. The framework's modular design and extensive validation metrics provide a solid foundation for these extensions while maintaining operational reliability.
+
+\section*{Replication Materials}
+The proof-of-concept implementation code is currently maintained in a private repository. Due to the experimental nature of the implementation and ongoing development, the codebase is not yet ready for public release. The core components utilize:
+
+\begin{itemize}
+    \item TensorFlow (2.9.0+) for basic LSTM implementation
+    \item hmmlearn (0.2.7+) for HMM base models
+    \item pandas and numpy for data preprocessing
+    \item scikit-learn for validation metrics
+\end{itemize}
+
+Researchers interested in discussing methodological details or implementation approaches can contact the author at \texttt{lucas.kemper@unil.ch}. A technical appendix describing the algorithmic details and configuration parameters is available upon request.
