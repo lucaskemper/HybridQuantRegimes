@@ -46,21 +46,9 @@ class DataLoader:
     def __init__(self, config: PortfolioConfig):
         self.config = config
         self.logger = logging.getLogger(__name__)
-
-        # Load environment variables
-        load_dotenv()
-
-        # Initialize Yahoo Finance client
-        self.api_key = os.getenv("ALPACA_KEY_ID")  # Changed from ALPACA_API_KEY
-        self.api_secret = os.getenv("ALPACA_SECRET_KEY")
-
-        if not self.api_key or not self.api_secret:
-            self.logger.error("API Key:", self.api_key)
-            self.logger.error("Secret Key:", self.api_secret)
-            raise ValueError(
-                "Alpaca API credentials not found in environment variables. "
-                "Please check your .env file contains ALPACA_KEY_ID and ALPACA_SECRET_KEY"
-            )
+        
+        # Remove Alpaca-specific code since we're using Yahoo Finance
+        load_dotenv()  # Keep this in case we need other env variables later
 
     def load_data(self) -> Dict[str, pd.DataFrame]:
         """Load and preprocess market data from Yahoo Finance"""

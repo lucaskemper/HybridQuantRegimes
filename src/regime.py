@@ -167,20 +167,51 @@ class MarketRegimeDetector:
 
         return smoothed
 
+    def fit(self, returns: pd.Series) -> None:
+        """Fit the HMM model to the data"""
+        X = self._prepare_features(returns)
+        self._initialize_hmm_params(X)
+        
+        try:
+            self.hmm_model.fit(X)
+            self._is_fitted = True
+            self._last_fit_size = len(returns)
+        except Exception as e:
+            self._is_fitted = False
+            raise RuntimeError(f"HMM fitting failed: {str(e)}") from e
+
+    def predict(self, returns: pd.Series) -> pd.Series:
+        """Predict regimes for the given returns"""
+        if not self._is_fitted:
+            raise ValueError("Model must be fitted before making predictions")
+
+        X = self._prepare_features(returns)
+        raw_regimes = self.hmm_model.predict(X)
+        
+        # Create Series with proper index
+        regimes = pd.Series(raw_regimes, index=returns.index)
+        
+        # Apply smoothing if configured
+        if self.config.smoothing_window > 0:
+            regimes = self._smooth_regimes(regimes)
+            
+        return regimes
+
     def fit_predict(self, returns: pd.Series) -> pd.Series:
         """Enhanced fit and predict with both HMM and LSTM"""
-        # Get HMM predictions
-        hmm_regimes = super().fit_predict(returns)
+        # First fit and get HMM predictions
+        self.fit(returns)
+        hmm_regimes = self.predict(returns)
 
-        if self.config.use_deep_learning:
+        if self.config.use_deep_learning and self.lstm_model is not None:
             try:
-                # Train LSTM
-                self.lstm_model.fit(returns)
+                # Train LSTM with HMM predictions as initial regimes
+                self.lstm_model.fit(returns, hmm_regimes)
 
                 # Get LSTM predictions
                 lstm_regimes = self.lstm_model.predict(returns)
 
-                # Combine predictions (simple average for now)
+                # Combine predictions
                 combined_regimes = self._combine_predictions(hmm_regimes, lstm_regimes)
                 return combined_regimes
 

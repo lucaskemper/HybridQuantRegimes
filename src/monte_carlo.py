@@ -7,6 +7,8 @@ import pandas as pd
 from arch import arch_model
 from scipy import stats as scipy_stats
 from scipy.stats import t as students_t
+import os
+from datetime import datetime
 
 
 @dataclass
@@ -317,3 +319,315 @@ class MonteCarlo:
         except Exception as e:
             print(f"Validation error: {str(e)}")
             return False
+
+    def analyze_results(self, results: Dict) -> Dict[str, float]:
+        """
+        Perform detailed analysis of simulation results.
+
+        Args:
+            results: Dictionary containing simulation results
+
+        Returns:
+            Dict containing additional analysis metrics
+        """
+        portfolio_values = results["final_values"]
+        
+        # Calculate additional risk metrics
+        cvar_95 = np.mean(portfolio_values[portfolio_values <= results["var_95"]])
+        cvar_99 = np.mean(portfolio_values[portfolio_values <= results["var_99"]])
+        
+        # Calculate maximum drawdown
+        cumulative_returns = np.cumprod(1 + np.diff(np.log(results["paths"]), axis=2), axis=2)
+        rolling_max = np.maximum.accumulate(cumulative_returns, axis=2)
+        drawdowns = (cumulative_returns - rolling_max) / rolling_max
+        max_drawdown = np.min(drawdowns)
+        
+        # Calculate additional performance metrics
+        daily_returns = np.diff(np.log(results["paths"]), axis=2)
+        annualized_return = np.mean(portfolio_values) ** (252 / self.config.n_days) - 1
+        annualized_vol = np.std(portfolio_values) * np.sqrt(252 / self.config.n_days)
+        
+        # Information ratio (assuming risk-free rate as benchmark)
+        excess_returns = daily_returns - self.config.risk_free_rate / 252
+        information_ratio = np.mean(excess_returns) / np.std(excess_returns) * np.sqrt(252)
+        
+        # Sortino ratio
+        downside_returns = daily_returns[daily_returns < 0]
+        downside_vol = np.std(downside_returns) * np.sqrt(252)
+        sortino_ratio = (annualized_return - self.config.risk_free_rate) / downside_vol
+        
+        analysis = {
+            "cvar_95": cvar_95,
+            "cvar_99": cvar_99,
+            "max_drawdown": max_drawdown,
+            "annualized_return": annualized_return,
+            "annualized_volatility": annualized_vol,
+            "information_ratio": information_ratio,
+            "sortino_ratio": sortino_ratio,
+            "success_rate": np.mean(portfolio_values > 1.0),  # Probability of positive return
+        }
+        
+        return analysis
+
+    def save_results(self, results: Dict, filepath: str) -> None:
+        """
+        Save simulation results to file.
+
+        Args:
+            results: Dictionary containing simulation results
+            filepath: Path to save results
+        """
+        try:
+            # Convert numpy arrays to lists for JSON serialization
+            serializable_results = {
+                "confidence_intervals": results["confidence_intervals"],
+                "expected_return": float(results["expected_return"]),
+                "simulation_volatility": float(results["simulation_volatility"]),
+                "var_95": float(results["var_95"]),
+                "var_99": float(results["var_99"]),
+                "statistics": {
+                    k: float(v) if isinstance(v, np.number) else v
+                    for k, v in results["statistics"].items()
+                },
+                "validation": results["validation"],
+                "analysis": self.analyze_results(results)
+            }
+            
+            # Save to file
+            import json
+            with open(filepath, 'w') as f:
+                json.dump(serializable_results, f, indent=4)
+            
+            print(f"Results saved to {filepath}")
+            
+        except Exception as e:
+            print(f"Error saving results: {str(e)}")
+            raise
+
+    def get_summary_statistics(self, results: Dict) -> pd.DataFrame:
+        """
+        Generate summary statistics of simulation results.
+
+        Args:
+            results: Dictionary containing simulation results
+
+        Returns:
+            DataFrame containing summary statistics
+        """
+        analysis = self.analyze_results(results)
+        
+        summary = pd.DataFrame({
+            "Metric": [
+                "Expected Return",
+                "Annualized Return",
+                "Annualized Volatility",
+                "Sharpe Ratio",
+                "Sortino Ratio",
+                "Information Ratio",
+                "VaR (95%)",
+                "CVaR (95%)",
+                "Maximum Drawdown",
+                "Success Rate"
+            ],
+            "Value": [
+                f"{results['expected_return']:.2%}",
+                f"{analysis['annualized_return']:.2%}",
+                f"{analysis['annualized_volatility']:.2%}",
+                f"{results['statistics']['sharpe_ratio']:.2f}",
+                f"{analysis['sortino_ratio']:.2f}",
+                f"{analysis['information_ratio']:.2f}",
+                f"{results['var_95']:.2%}",
+                f"{analysis['cvar_95']:.2%}",
+                f"{analysis['max_drawdown']:.2%}",
+                f"{analysis['success_rate']:.2%}"
+            ]
+        })
+        
+        return summary
+
+    def __str__(self) -> str:
+        """String representation of the Monte Carlo simulation configuration"""
+        return (
+            f"Monte Carlo Simulation:\n"
+            f"  Number of simulations: {self.config.n_sims}\n"
+            f"  Number of days: {self.config.n_days}\n"
+            f"  Risk-free rate: {self.config.risk_free_rate:.2%}\n"
+            f"  Distribution: {self.config.distribution}\n"
+            f"  Confidence levels: {self.config.confidence_levels}"
+        )
+
+    def plot_simulation_paths(self, results: Dict, title: str = "Monte Carlo Simulation Paths") -> None:
+        """
+        Plot simulation paths.
+
+        Args:
+            results: Dictionary containing simulation results
+            title: Title for the plot
+        """
+        try:
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            
+            plt.figure(figsize=(12, 6))
+            sns.set_style("whitegrid")
+            
+            # Plot a subset of paths for better visualization
+            n_paths_to_plot = min(100, self.config.n_sims)
+            paths = results["paths"]
+            
+            # Calculate portfolio values over time
+            portfolio_paths = np.sum(paths, axis=1)
+            time_points = np.arange(self.config.n_days)
+            
+            # Plot paths
+            for i in range(n_paths_to_plot):
+                plt.plot(time_points, portfolio_paths[i], alpha=0.1, color='blue')
+                
+            # Plot mean path
+            mean_path = np.mean(portfolio_paths, axis=0)
+            plt.plot(time_points, mean_path, color='red', linewidth=2, label='Mean Path')
+            
+            # Plot confidence intervals
+            percentiles = np.percentile(portfolio_paths, [5, 95], axis=0)
+            plt.fill_between(time_points, percentiles[0], percentiles[1], 
+                           color='gray', alpha=0.2, label='90% Confidence Interval')
+            
+            plt.title(title)
+            plt.xlabel('Trading Days')
+            plt.ylabel('Portfolio Value')
+            plt.legend()
+            plt.tight_layout()
+            plt.show()
+            
+        except ImportError:
+            print("Please install matplotlib and seaborn to use plotting functionality")
+        except Exception as e:
+            print(f"Error plotting simulation paths: {str(e)}")
+
+    def plot_distribution(self, results: Dict, title: str = "Final Portfolio Value Distribution") -> None:
+        """
+        Plot the distribution of final portfolio values.
+
+        Args:
+            results: Dictionary containing simulation results
+            title: Title for the plot
+        """
+        try:
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            
+            plt.figure(figsize=(10, 6))
+            sns.set_style("whitegrid")
+            
+            # Plot distribution
+            sns.histplot(results["final_values"], kde=True)
+            
+            # Add vertical lines for key statistics
+            plt.axvline(results["expected_return"], color='red', linestyle='--', 
+                       label=f'Expected Return: {results["expected_return"]:.2%}')
+            plt.axvline(results["var_95"], color='orange', linestyle='--',
+                       label=f'95% VaR: {results["var_95"]:.2%}')
+            
+            # Add labels and title
+            plt.title(title)
+            plt.xlabel('Portfolio Value')
+            plt.ylabel('Frequency')
+            plt.legend()
+            plt.tight_layout()
+            plt.show()
+            
+        except ImportError:
+            print("Please install matplotlib and seaborn to use plotting functionality")
+        except Exception as e:
+            print(f"Error plotting distribution: {str(e)}")
+
+    def plot_risk_metrics(self, results: Dict) -> None:
+        """
+        Plot key risk metrics.
+
+        Args:
+            results: Dictionary containing simulation results
+        """
+        try:
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            
+            analysis = self.analyze_results(results)
+            
+            # Prepare data
+            metrics = {
+                'VaR (95%)': results['var_95'],
+                'CVaR (95%)': analysis['cvar_95'],
+                'Max Drawdown': analysis['max_drawdown'],
+                'Annualized Vol': analysis['annualized_volatility']
+            }
+            
+            plt.figure(figsize=(10, 6))
+            sns.set_style("whitegrid")
+            
+            # Create bar plot
+            plt.bar(metrics.keys(), [abs(v) for v in metrics.values()])
+            
+            # Customize plot
+            plt.title('Risk Metrics')
+            plt.xticks(rotation=45)
+            plt.ylabel('Absolute Value')
+            
+            # Add value labels on top of bars
+            for i, (metric, value) in enumerate(metrics.items()):
+                plt.text(i, abs(value), f'{value:.2%}', ha='center', va='bottom')
+            
+            plt.tight_layout()
+            plt.show()
+            
+        except ImportError:
+            print("Please install matplotlib and seaborn to use plotting functionality")
+        except Exception as e:
+            print(f"Error plotting risk metrics: {str(e)}")
+
+    def generate_report(self, results: Dict, output_dir: str = "reports") -> None:
+        """
+        Generate a comprehensive report of simulation results.
+
+        Args:
+            results: Dictionary containing simulation results
+            output_dir: Directory to save the report
+        """
+        try:
+            # Create output directory if it doesn't exist
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Generate timestamp for unique filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_path = os.path.join(output_dir, f"monte_carlo_report_{timestamp}")
+            
+            # Save numerical results
+            self.save_results(results, f"{report_path}.json")
+            
+            # Save summary statistics to CSV
+            summary_stats = self.get_summary_statistics(results)
+            summary_stats.to_csv(f"{report_path}_summary.csv", index=False)
+            
+            # Generate plots
+            import matplotlib.pyplot as plt
+            
+            # Save simulation paths plot
+            self.plot_simulation_paths(results)
+            plt.savefig(f"{report_path}_paths.png")
+            plt.close()
+            
+            # Save distribution plot
+            self.plot_distribution(results)
+            plt.savefig(f"{report_path}_distribution.png")
+            plt.close()
+            
+            # Save risk metrics plot
+            self.plot_risk_metrics(results)
+            plt.savefig(f"{report_path}_risk_metrics.png")
+            plt.close()
+            
+            print(f"Report generated successfully in {output_dir}")
+            
+        except Exception as e:
+            print(f"Error generating report: {str(e)}")
+            raise

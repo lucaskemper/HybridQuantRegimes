@@ -13,6 +13,7 @@ alpaca-py>=0.8.0
 scikit-learn>=0.24.0
 arch>=5.0.0
 hmmlearn>=0.3.3
+tensorflow>=2.12.0  # Required for LSTM model
 
 # Statistics and Financial Analysis
 statsmodels>=0.13.0
