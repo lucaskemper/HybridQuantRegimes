@@ -1,5 +1,4 @@
 # Quantitative Portfolio Risk Analysis System: A Framework for Market Regime Detection and Risk Assessment in Semiconductor Equities
-(Classwork -due december, scope / content might change at any time)  v0.3
 ## Project Status
 
 | Component      | Status    | Notes                               |
@@ -14,7 +13,7 @@
 **Note**: Alpaca API key required for market data access. Configure in `.env` file.
 ...
 ## Authors and Institutional Affiliation
-- **Lucas Kemper** - MscF Student, HEC Lausanne
+- **Lucas Kemper** - Bsc Student, HEC Lausanne
 ## Setup Guide
 
 ### Prerequisites
