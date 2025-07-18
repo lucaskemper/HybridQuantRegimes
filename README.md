@@ -1,179 +1,93 @@
-# Quantitative Portfolio Risk Analysis System: A Framework for Market Regime Detection and Risk Assessment in Semiconductor Equities
-## Project Status
+# ResearchLucas: Dynamic Portfolio Analysis & Regime Detection
 
-| Component      | Status    | Notes                               |
-|---------------|-----------|-------------------------------------|
-| Data Pipeline | ✅ Working | Core functionality implemented     |
-| Monte Carlo   | ✅ Working | Module works as expected        |
-| Visualization | ⚠️ Working | Planned  improvements          |
-| Signals       | ❌ Pending | Development not started            |
-| Risk Analysis | 🏗️ WIP    | Under active development           |
-| Regime Detection| ✅ Working | Core algorithms implemented      |
+## Overview
 
-**Note**: Alpaca API key required for market data access. Configure in `.env` file.
-...
-## Authors and Institutional Affiliation
-- **Lucas Kemper** - Bsc Student, HEC Lausanne
-## Setup Guide
+This project provides a modular framework for advanced portfolio analysis, dynamic risk management, and market regime detection using both classical and deep learning methods. It is designed for quantitative finance research, supporting simulation, risk, and signal generation workflows.
 
-### Prerequisites
-- Python 3.10+
-- pip (Python package installer)
-- Git (optional)
+## Features
 
-### Installation
+- **Data Loading**: Fetches and preprocesses historical market data from Yahoo Finance.
+- **Monte Carlo Simulation**: Simulates portfolio returns using configurable distributions and GARCH volatility forecasting.
+- **Market Regime Detection**: Identifies market regimes using Hidden Markov Models (HMM) and optional LSTM-based deep learning.
+- **Risk Management**: Computes advanced risk metrics (VaR, ES, drawdown, Sharpe, rolling volatility, etc.) with regime-aware options.
+- **Signal Generation**: Produces trading signals based on moving averages and momentum.
+- **Visualization**: Generates comprehensive plots for prices, signals, Monte Carlo paths, and return distributions.
+- **Extensive Testing**: Includes unit and integration tests for all major modules.
 
-#### 1. Basic Installation
-```bash
-# Clone repository
-git clone <repository-url>
-cd <repository-directory>
+## Installation
 
-# Create and activate virtual environment
-python3.10 -m venv venv
+1. Clone the repository:
+   ```bash
+   git clone <repo-url>
+   cd researchlucas
+   ```
 
-# Windows
-venv\Scripts\activate
-# macOS/Linux
-source venv/bin/activate
+2. Install dependencies (Python 3.8+ recommended):
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-# Install package
-pip install -e .
-```
+3. (Optional) Set up a `.env` file for environment variables if needed.
 
-#### 2. Development Setup
-```bash
-# Install with development dependencies
-pip install -e ".[dev]"
-```
+## Usage
 
-### Configuration
-The system requires configuration of risk parameters and portfolio settings. See `config.yml` for customization options.
-
-### Validation
-```bash
-# Run test suite
-pytest tests/
-
-# Run type checking
-mypy src/
-```
-
-## Abstract
-This research presents a comprehensive quantitative framework for analyzing portfolio risk in the semiconductor sector, with particular emphasis on regime detection methodologies and Monte Carlo simulations incorporating heavy-tailed distributions. The system implements sophisticated statistical approaches for risk assessment, including Value at Risk (VaR) and Expected Shortfall (ES) calculations, while accounting for regime-dependent volatility dynamics.
-
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-## Methodological Framework
-
-### 1. Market Regime Detection Methodology
-The framework employs a sophisticated volatility-based approach for regime identification, utilizing both short-term (21-day) and medium-term (63-day) rolling windows to capture temporal dynamics in market conditions. The regime classification methodology follows:
+### Example Workflow
 
 ```python
-def detect_regime(self, volatility: np.ndarray) -> str:
-    """
-    Implements regime classification based on rolling volatility measures
-    utilizing empirical quantile thresholds.
-    
-    Parameters:
-        volatility (np.ndarray): Time series of realized volatilities
-        
-    Returns:
-        str: Classified regime state
-    """
-    percentile_33 = np.percentile(volatility, 33)
-    percentile_67 = np.percentile(volatility, 67)
-    
-    if volatility[-1] <= percentile_33:
-        return "Low Volatility"
-    elif volatility[-1] >= percentile_67:
-        return "High Volatility"
-    return "Medium Volatility"
-```
+from src.data import DataLoader, PortfolioConfig
+from src.portfolio import PortfolioAnalyzer, PortfolioAnalyzerConfig
 
-### 2. Monte Carlo Simulation Framework
-The simulation methodology incorporates:
-
-```python
-def simulate(self, market_data: Dict[str, pd.DataFrame]) -> Dict:
-    """
-    Implements Monte Carlo simulation with configurable distributional assumptions
-    and GARCH volatility processes.
-    
-    Parameters:
-        market_data (Dict[str, pd.DataFrame]): Historical market data
-        
-    Returns:
-        Dict: Simulation results and validation metrics
-    """
-    n_assets = len(returns.columns)
-    paths = np.zeros((self.config.n_sims, n_assets, self.config.n_days))
-
-    for i in range(self.config.n_days):
-        if self.distribution == 'normal':
-            z = np.random.standard_normal((self.config.n_sims, n_assets))
-        elif self.distribution == 't':
-            z = scipy_stats.t.rvs(df=3, size=(self.config.n_sims, n_assets))
-```
-
-## Empirical Results and Statistical Analysis
-
-### 1. Portfolio Performance Metrics
-| Metric | Value | 95% Confidence Interval | Statistical Significance |
-|--------|-------|------------------------|-------------------------|
-| Portfolio Volatility | 42.72% | [38.5%, 46.9%] | p < 0.001 |
-| Value at Risk (95%) | -3.99% | [-4.2%, -3.7%] | p < 0.001 |
-| Expected Shortfall | -5.74% | [-6.1%, -5.4%] | p < 0.001 |
-| Sharpe Ratio | 0.73 | [0.65, 0.81] | p < 0.05 |
-| Information Ratio | 0.68 | [0.61, 0.75] | p < 0.05 |
-
-### 2. Regime Characteristics and Transition Dynamics
-| Regime | Mean Return (μ) | Volatility (σ) | Stationary Distribution | Transition Matrix Row |
-|--------|----------------|----------------|------------------------|---------------------|
-| Low | 4.36% (t=3.42)* | 26.10% | 32.5% | [0.81, 0.12, 0.07] |
-| Medium | 2.81% (t=2.15)* | 37.00% | 33.4% | [0.09, 0.82, 0.09] |
-| High | -0.25% (t=-0.18) | 57.06% | 32.5% | [0.08, 0.11, 0.81] |
-*Statistically significant at p < 0.05
-
-## Implementation Architecture
-```
-src/
-├── risk.py          # Risk metric implementations
-├── monte_carlo.py   # Simulation engine
-├── visualization.py # Statistical visualization
-└── data.py         # Data preprocessing
-```
-
-## Methodological Implementation
-```python
-from src.risk import RiskManager, RiskConfig
-
-risk_config = RiskConfig(
-    confidence_level=0.95,
-    distribution='student_t',
-    df=3,  # Degrees of freedom for t-distribution
-    garch_order=(1,1),
-    vol_window=63  # Rolling window for volatility estimation
+# Configure your portfolio
+config = PortfolioConfig(
+    tickers=["AAPL", "MSFT", "GOOGL"],
+    start_date="2023-01-01",
+    end_date="2023-12-31",
+    weights=[0.4, 0.3, 0.3]
 )
+data_loader = DataLoader(config)
+market_data = data_loader.load_data()
 
-risk_manager = RiskManager(risk_config)
-results = risk_manager.analyze_portfolio(market_data)
+# Analyze portfolio
+analyzer = PortfolioAnalyzer(PortfolioAnalyzerConfig())
+results = analyzer.analyze_portfolio(market_data)
 ```
 
-## References
-1. Ang, A., & Bekaert, G. (2002). "Regime Shifts in Asset Allocation." *The Review of Financial Studies*, 15(4), 1137-1187. https://doi.org/10.1093/rfs/15.4.1137
+### Visualization
 
-2. McNeil, A. J., Frey, R., & Embrechts, P. (2015). "Quantitative Risk Management: Concepts, Techniques and Tools." *Princeton University Press*. ISBN: 978-0691166278
+The `PortfolioVisualizer` class in `src/visualization.py` can be used to plot results:
+```python
+from src.visualization import PortfolioVisualizer
+visualizer = PortfolioVisualizer()
+visualizer.plot_portfolio_analysis(
+    market_data, results['signals'], results['monte_carlo'], results['regimes']['current_regime']
+)
+```
 
-3. Bollerslev, T. (1986). "Generalized Autoregressive Conditional Heteroskedasticity." *Journal of Econometrics*, 31(3), 307-327. https://doi.org/10.1016/0304-4076(86)90063-1
-5.  McNeil, A.J., Frey, R. (2000). "Estimation of Tail-Related Risk Measures"
-3. Hamilton, J.D. (1989). "A New Approach to the Economic Analysis of Time Series"
-4. Ang, A., Bekaert, G. (2002). "Regime Switches in Interest Rates"
-5. Maïnassara, Y.B., Kadmiri O., Saussereau B. (2022). "Estimation of multivariate asymmetric power GARCH models"
-6. Cunchala, A. (2024). "A Basic Overview of Various Stochastic Approaches to Financial Modeling With Examples"
+### Running Tests
 
+```bash
+pytest tests/
+```
 
+## Project Structure
 
-## License and Distribution
-This research implementation is distributed under the MIT License - see [LICENSE.md](LICENSE.md)
+- `src/data.py` – Data loading and preprocessing
+- `src/monte_carlo.py` – Monte Carlo simulation engine
+- `src/regime.py` – Market regime detection (HMM, LSTM)
+- `src/risk.py` – Risk metrics and management
+- `src/signals.py` – Trading signal generation
+- `src/visualization.py` – Plotting and visualization
+- `src/deep_learning.py` – LSTM regime detection
+- `src/portfolio.py` – High-level portfolio analysis workflow
+- `tests/` – Unit and integration tests
+
+## Requirements
+
+See `requirements.txt` for all dependencies, including:
+- numpy, pandas, scipy, yfinance, scikit-learn, hmmlearn, tensorflow, arch, matplotlib, seaborn, etc.
+
+## Notes
+
+- The framework is modular: each component can be used independently or as part of the full workflow.
+- For deep learning regime detection, TensorFlow is required.
+- Example notebooks and additional documentation may be added in the future.
