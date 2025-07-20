@@ -94,7 +94,18 @@ class PortfolioVisualizer:
     def _plot_monte_carlo_paths(self, mc_results: Dict, ax: plt.Axes) -> None:
         """Plot Monte Carlo simulation paths"""
         paths = mc_results["paths"]
-        ax.plot(paths[:, :100].T, alpha=0.1, color=self.colors["primary"])
+        
+        # Handle different path shapes
+        if len(paths.shape) == 3:
+            # Shape: (n_days, n_assets, n_sims) - sum across assets for portfolio paths
+            portfolio_paths = np.sum(paths, axis=1)  # Sum across assets
+            # Plot first 100 simulations
+            for i in range(min(100, portfolio_paths.shape[1])):
+                ax.plot(portfolio_paths[:, i], alpha=0.1, color=self.colors["primary"])
+        else:
+            # Shape: (n_sims, n_days) - plot directly
+            ax.plot(paths[:, :100].T, alpha=0.1, color=self.colors["primary"])
+            
         ax.axhline(y=1, color=self.colors["text"], linestyle="--")
         ax.set_title("Monte Carlo Simulation Paths")
         ax.grid(True, color=self.colors["grid"], alpha=0.2)
@@ -148,11 +159,12 @@ class PortfolioVisualizer:
 
     def _plot_risk_summary(self, metrics: Dict, ax: plt.Axes) -> None:
         """Plot risk metrics summary"""
+        # Use the actual key names from RiskManager.calculate_metrics
         key_metrics = {
-            "Volatility": f"{metrics['annual_vol']:.1%}",
-            "Sharpe": f"{metrics['sharpe']:.2f}",
-            "VaR (95%)": f"{metrics['var_95']:.1%}",
-            "Max DD": f"{metrics['max_drawdown']:.1%}",
+            "Volatility": f"{metrics.get('portfolio_volatility', 0):.1%}",
+            "Sharpe": f"{metrics.get('sharpe_ratio', 0):.2f}",
+            "VaR (95%)": f"{metrics.get('var_95', 0):.1%}",
+            "Max DD": f"{metrics.get('max_drawdown', 0):.1%}",
         }
 
         y_pos = np.arange(len(key_metrics))
@@ -166,6 +178,37 @@ class PortfolioVisualizer:
         ax.set_title("Key Risk Metrics")
         ax.set_yticks([])
         ax.set_xticks([])
+
+    def _plot_correlation_matrix(self, correlation: pd.DataFrame, ax: plt.Axes) -> None:
+        """Plot correlation matrix heatmap"""
+        sns.heatmap(correlation, annot=True, cmap='coolwarm', center=0, ax=ax)
+        ax.set_title("Asset Correlation Matrix")
+
+    def _plot_rolling_metrics(self, metrics: Dict, ax: plt.Axes) -> None:
+        """Plot rolling volatility and other metrics"""
+        if 'rolling_volatility' in metrics:
+            rolling_vol = metrics['rolling_volatility']
+            for col in rolling_vol.columns:
+                ax.plot(rolling_vol.index, rolling_vol[col], label=col)
+            ax.set_title("Rolling Volatility")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+        else:
+            ax.text(0.5, 0.5, 'Rolling metrics not available', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title("Rolling Metrics")
+
+    def _plot_drawdown(self, metrics: Dict, ax: plt.Axes) -> None:
+        """Plot drawdown analysis"""
+        if 'max_drawdown' in metrics:
+            dd = metrics['max_drawdown']
+            ax.bar(['Max Drawdown'], [abs(dd)], color='red' if dd < 0 else 'green')
+            ax.set_title("Maximum Drawdown")
+            ax.set_ylabel("Drawdown (%)")
+        else:
+            ax.text(0.5, 0.5, 'Drawdown data not available', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title("Drawdown Analysis")
 
 
 # Utility functions moved from utils.py

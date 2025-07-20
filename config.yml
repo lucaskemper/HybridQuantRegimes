@@ -1,0 +1,651 @@
+# ================================================================================
+# ENHANCED MARKET REGIME DETECTION & PORTFOLIO ANALYSIS CONFIGURATION
+# Optimized for Semiconductor-Focused HMM-LSTM Hybrid Strategy
+# Target: Maximum Risk-Adjusted Returns with Robust Regime Detection
+# ================================================================================
+
+# Data Configuration
+data:
+  # Extended training window for comprehensive market cycle coverage
+  start_date: "2008-01-01"  # Include 2008 financial crisis for regime diversity
+  end_date: "2024-12-31"    # Extended to include recent market conditions
+  frequency: "D"
+  use_cache: true
+  include_macro: true
+  
+  # Data quality and preprocessing
+  preprocessing:
+    remove_outliers: true
+    outlier_threshold: 3.0  # Standard deviations
+    fill_missing: "forward_fill"
+    min_data_quality: 0.95  # 95% data availability requirement
+  
+  # Macro indicators for regime detection
+  macro_indicators:
+    - "^VIX"      # Volatility index
+    - "^TNX"      # 10-year treasury yield
+    - "^TYX"      # 30-year treasury yield
+    - "DXY"       # Dollar index
+    - "^GSPC"     # S&P 500 for market regime context
+
+# Enhanced Asset Selection - Semiconductor-Focused with Strategic Diversification
+assets:
+  # Asset allocation strategy
+  allocation_strategy: "tiered_semiconductor_focus"
+  
+  # Tier 1 - Semiconductor Leaders (45% allocation)
+  # Focus on your research specialization for maximum edge
+  tier1_semiconductor_core:
+    tickers: ["NVDA", "TSM", "ASML", "AMD"]
+    allocation_weight: 0.45
+    description: "Core semiconductor leaders across GPU, foundry, equipment, CPU"
+    rationale:
+      - "NVDA: AI/GPU leadership with clear regime patterns"
+      - "TSM: Foundry monopoly, Asian market exposure"
+      - "ASML: EUV equipment monopoly, technology gatekeeper"
+      - "AMD: CPU/GPU competition, Intel alternative"
+  
+  # Tier 2 - Tech Infrastructure (30% allocation) 
+  # Stable tech leaders with regime sensitivity
+  tier2_tech_infrastructure:
+    tickers: ["MSFT", "GOOGL", "AAPL"]
+    allocation_weight: 0.30
+    description: "Large-cap tech with stable growth and regime awareness"
+    rationale:
+      - "MSFT: Cloud dominance, enterprise software moat"
+      - "GOOGL: Search/advertising, cloud growth, AI development"
+      - "AAPL: Consumer hardware, ecosystem lock-in"
+  
+  # Tier 3 - High-Beta Growth (25% allocation)
+  # High regime sensitivity for alpha capture
+  tier3_high_beta_growth:
+    tickers: ["TSLA", "ANET", "CRM", "AVGO"]
+    allocation_weight: 0.25
+    description: "High-beta assets for momentum and regime-based alpha"
+    rationale:
+      - "TSLA: EV leadership, high volatility, regime-sensitive"
+      - "ANET: Networking infrastructure, cloud enabler"
+      - "CRM: Enterprise software, subscription model"
+      - "AVGO: Diversified semiconductor/software"
+
+# Training and Testing Periods
+periods:
+  # Training period - Extended for comprehensive market cycles
+  training:
+    start: "2008-01-01"  # Include financial crisis
+    end: "2019-12-31"    # Pre-COVID training
+    description: "12-year training window covering multiple market cycles"
+    market_conditions:
+      - "2008-2009: Financial crisis and recovery"
+      - "2010-2012: European debt crisis"
+      - "2013-2017: Bull market expansion" 
+      - "2018: Volatility spike and trade wars"
+      - "2019: Recovery and pre-COVID normalization"
+  
+  # Test period - Extended for robustness validation
+  testing:
+    start: "2020-01-01"
+    end: "2024-12-31"
+    description: "5-year test period including COVID and recovery"
+    market_conditions:
+      - "2020-2021: COVID crisis and recovery (original test)"
+      - "2022: Fed tightening and tech selloff"
+      - "2023: AI boom and recovery"
+      - "2024: Current market conditions"
+  
+  # Rolling validation windows
+  validation_windows:
+    - period: "2018-2019"
+      description: "Pre-COVID validation"
+    - period: "2020-2021" 
+      description: "COVID crisis period"
+    - period: "2022-2023"
+      description: "Post-COVID normalization"
+    - period: "2024"
+      description: "Current market regime"
+
+# Enhanced Regime Detection Configuration
+regime_detection:
+  # Core regime parameters - Optimized for semiconductors
+  n_regimes: 4  # Optimal for semiconductor business cycles
+  window_size: 15  # Faster regime change detection
+  smoothing_window: 3  # Reduced for more responsive detection
+  
+  # Enhanced feature set for semiconductor markets
+  features:
+    price_based:
+      - "returns"
+      - "log_returns"
+      - "volatility"
+      - "realized_volatility"
+    
+    momentum_based:
+      - "momentum_5d"
+      - "momentum_20d"
+      - "momentum_60d"
+      - "roc_10d"  # Rate of change
+    
+    technical_indicators:
+      - "rsi_14"
+      - "rsi_30"
+      - "macd_signal"
+      - "bollinger_position"
+      - "williams_r"
+    
+    volume_based:
+      - "volume_ratio"
+      - "volume_sma_ratio"
+      - "on_balance_volume"
+    
+    macro_features:
+      - "vix_level"
+      - "vix_change"
+      - "yield_spread"
+      - "term_structure_slope"
+      - "dollar_strength"
+    
+    # Semiconductor-specific features
+    sector_specific:
+      - "semiconductor_pmi"  # If available
+      - "memory_vs_logic_spread"
+      - "equipment_vs_design_ratio"
+  
+  # Advanced regime labeling
+  labeling_metric: "risk_adjusted_return"  # Sharpe-based regime identification
+  regime_names: ["Low_Vol_Growth", "High_Vol_Growth", "Correction", "Crisis"]
+  
+  # Ensemble model configuration
+  ensemble_config:
+    models: ["hmm", "lstm", "transformer"]
+    ensemble_method: "dynamic_weighted_confidence"
+    model_weights:
+      hmm: 0.25          # Statistical foundation
+      lstm: 0.40         # Sequential pattern recognition
+      transformer: 0.35  # Attention-based regime detection
+    
+    # Dynamic weight adjustment
+    weight_adaptation: true
+    performance_lookback: 63  # 3 months for weight adjustment
+  
+  # HMM-specific parameters
+  hmm_config:
+    covariance_type: "full"
+    n_iter: 1000
+    random_state: 42
+    algorithm: "viterbi"
+    implementation: "log"
+  
+  # Regime transition constraints
+  transition_constraints:
+    min_regime_duration: 5    # Minimum 5 days in regime
+    transition_probability_floor: 0.05  # Minimum transition probability
+    self_transition_bias: 0.1  # Slight bias toward staying in regime
+
+# Advanced Deep Learning Configuration
+deep_learning:
+  # Enhanced LSTM architecture
+  lstm_config:
+    sequence_length: 15  # Reduced from 30
+    hidden_dims: [64, 32]  # Reduced from [128, 64, 32, 16]
+    epochs: 50  # Reduced from 250
+    batch_size: 128  # Increased from 64 for faster training
+    learning_rate: 0.001  # Increased from 0.0005
+    learning_rate_schedule:
+      type: "cosine_annealing"
+      T_max: 25  # Reduced from 50
+      eta_min: 0.0001  # Increased from 0.00001
+    
+    # Regularization
+    dropout_rate: 0.2  # Reduced from 0.3
+    l2_regularization: 0.001
+    batch_normalization: true
+    
+    # Training optimization
+    optimizer: "adamw"
+    weight_decay: 0.01
+    gradient_clipping: 1.0
+    early_stopping_patience: 10  # Reduced from 30
+    validation_split: 0.2
+    
+    # Advanced features
+    use_attention: false  # Disabled for speed
+    bidirectional: false  # Disabled for speed
+    residual_connections: false  # Disabled for speed
+  
+  # Transformer model configuration
+  transformer_config:
+    d_model: 64  # Reduced from 128
+    nhead: 4  # Reduced from 8
+    num_encoder_layers: 2  # Reduced from 4
+    dim_feedforward: 128  # Reduced from 256
+    sequence_length: 15  # Reduced from 21
+    epochs: 30  # Reduced from 200
+    batch_size: 64  # Increased from 32
+    learning_rate: 0.001  # Increased from 0.0001
+    dropout: 0.1
+    activation: "gelu"
+    
+    # Positional encoding
+    use_positional_encoding: true
+    max_sequence_length: 252  # 1 year max
+  
+  # Feature engineering for deep learning
+  feature_engineering:
+    normalize_method: "robust_scaler"  # Robust to outliers
+    create_lagged_features: true
+    lag_periods: [1, 2, 3, 5, 10, 20]
+    create_rolling_features: true
+    rolling_windows: [5, 10, 20, 60]
+    create_interaction_features: true
+    polynomial_features_degree: 2
+    
+  # Model selection and validation
+  model_selection:
+    use_cross_validation: true
+    cv_folds: 5
+    validation_method: "time_series_split"
+    scoring_metric: "neg_log_loss"
+
+# Dynamic Risk Management System
+risk_management:
+  # Regime-adaptive risk controls
+  regime_based_controls:
+    Low_Vol_Growth:
+      stop_loss: 0.05      # 5% stop in calm markets
+      take_profit: 0.25    # 25% profit target
+      max_position: 0.30   # Higher positions in stable regimes
+      vol_target: 0.10     # Lower volatility target
+    
+    High_Vol_Growth:
+      stop_loss: 0.08      # 8% stop in volatile growth
+      take_profit: 0.35    # Higher profit targets
+      max_position: 0.25   # Standard position size
+      vol_target: 0.15     # Moderate volatility target
+    
+    Correction:
+      stop_loss: 0.12      # 12% stop in corrections
+      take_profit: 0.20    # Lower profit targets
+      max_position: 0.15   # Reduced exposure
+      vol_target: 0.20     # Higher volatility tolerance
+    
+    Crisis:
+      stop_loss: 0.20      # 20% stop in crisis
+      take_profit: 0.40    # High profit targets if recovery
+      max_position: 0.10   # Minimal exposure
+      vol_target: 0.25     # Maximum volatility tolerance
+  
+  # Advanced position sizing
+  position_sizing:
+    method: "regime_aware_kelly"
+    base_position_size: 0.12
+    confidence_multiplier: 2.0
+    kelly_fraction: 0.25  # Conservative Kelly implementation
+    
+    # Dynamic sizing factors
+    volatility_adjustment: true
+    regime_confidence_adjustment: true
+    drawdown_adjustment: true
+    correlation_adjustment: true
+    
+    # Position limits
+    min_position_size: 0.02
+    max_position_size: 0.35
+    max_sector_concentration: 0.60  # Max 60% in semiconductors
+    
+  # Portfolio-level risk controls
+  portfolio_risk:
+    max_portfolio_drawdown: 0.20      # 20% maximum drawdown
+    daily_var_limit: 0.03             # 3% daily VaR limit
+    correlation_warning_threshold: 0.8 # Warn if correlations exceed 80%
+    leverage_limit: 1.0               # No leverage
+    
+    # Diversification requirements
+    min_positions: 8       # Minimum 8 positions
+    max_single_position: 0.35  # Maximum 35% in single asset
+    rebalancing_threshold: 0.05  # Rebalance if 5% drift from target
+
+# Enhanced Adaptive Retraining System
+adaptive_retraining:
+  # Multi-trigger retraining system
+  triggers:
+    # Market condition triggers
+    vix_threshold: 25.0
+    volatility_regime_change: true
+    yield_curve_inversion: true
+    
+    # Model performance triggers
+    regime_confidence_drop: 0.40  # Retrain if confidence drops below 40%
+    prediction_accuracy_drop: 0.60  # Retrain if accuracy drops below 60%
+    sharpe_ratio_deterioration: -0.5  # Retrain if Sharpe drops 0.5
+    
+    # Calendar triggers
+    calendar_monthly: true
+    calendar_quarterly: true
+  
+  # Retraining frequency by market condition
+  retraining_schedule:
+    vix_very_low: 126    # Semi-annual when VIX < 15
+    vix_low: 63          # Quarterly when 15 < VIX < 20
+    vix_medium: 21       # Monthly when 20 < VIX < 30
+    vix_high: 10         # Bi-weekly when 30 < VIX < 40
+    vix_extreme: 5       # Weekly when VIX > 40
+  
+  # Ensemble retraining strategy
+  retraining_strategy:
+    method: "cascade"  # Retrain models in order of importance
+    prioritization: ["transformer", "lstm", "hmm"]
+    parallel_retraining: true
+    validation_window: 63  # 3-month validation after retraining
+    
+  # Model persistence and rollback
+  model_versioning:
+    keep_model_history: true
+    max_model_versions: 10
+    performance_comparison: true
+    automatic_rollback: true
+    rollback_threshold: -0.1  # Rollback if new model underperforms by 10%
+
+# Enhanced Monte Carlo Simulation
+monte_carlo:
+  # Simulation parameters
+  n_sims: 10000  # Reduced from 50000 for faster execution
+  n_days: 252    # 1-year forward simulation
+  
+  # Advanced distribution modeling
+  return_distribution:
+    method: "regime_conditional"  # Different distributions per regime
+    
+    # Regime-specific distributions
+    Low_Vol_Growth: "skewed_t"    # Slightly positive skew
+    High_Vol_Growth: "student_t"  # Heavy tails
+    Correction: "generalized_error"  # Fat tails, negative skew
+    Crisis: "asymmetric_laplace"  # Extreme negative tail
+  
+  # Volatility modeling
+  volatility_model:
+    type: "garch_regime_switching"
+    garch_order: [1, 1]  # GARCH(1,1)
+    regime_dependent: true
+    
+  # Correlation modeling
+  correlation_model:
+    method: "dynamic_conditional_correlation"
+    regime_dependent: true
+    time_varying: true
+    
+  # Advanced VaR calculations
+  var_methods:
+    - "historical_simulation"
+    - "parametric_gaussian"
+    - "parametric_t_distribution"
+    - "monte_carlo"
+    - "extreme_value_theory"
+    - "cornish_fisher_expansion"
+  
+  # Risk metrics
+  confidence_levels: [0.01, 0.025, 0.05, 0.10, 0.25, 0.5, 0.75, 0.90, 0.95, 0.975, 0.99]
+  risk_free_rate: 0.02  # Current realistic risk-free rate
+  
+  # Stress testing scenarios
+  stress_tests:
+    - name: "2008_financial_crisis"
+      description: "Replicate 2008 market conditions"
+    - name: "covid_crash"
+      description: "Replicate March 2020 market crash"
+    - name: "tech_bubble_burst" 
+      description: "Replicate dot-com crash for tech portfolio"
+    - name: "semiconductor_cycle_down"
+      description: "Severe semiconductor downturn"
+
+# Signal Generation and Trading Logic
+signal_generation:
+  # Multi-factor signal approach
+  signal_factors:
+    trend_following:
+      enabled: true
+      indicators: ["sma_cross", "ema_cross", "macd", "adx"]
+      lookback_periods: [10, 20, 50, 200]
+      weight: 0.30
+    
+    mean_reversion:
+      enabled: true
+      indicators: ["rsi", "bollinger_bands", "williams_r"]
+      overbought_threshold: 70
+      oversold_threshold: 30
+      weight: 0.25
+    
+    momentum:
+      enabled: true
+      indicators: ["roc", "momentum", "trix"]
+      lookback_periods: [5, 10, 20]
+      weight: 0.25
+    
+    regime_specific:
+      enabled: true
+      regime_conditional_signals: true
+      regime_transition_signals: true
+      weight: 0.20
+  
+  # Signal aggregation and filtering
+  signal_processing:
+    aggregation_method: "weighted_average"
+    confidence_weighting: true
+    regime_filtering: true
+    minimum_signal_strength: 0.3
+    signal_decay_factor: 0.95  # Exponential decay
+    
+    # Signal validation
+    backtesting_window: 252  # 1-year signal validation
+    minimum_sharpe_threshold: 0.5
+    maximum_turnover: 2.0  # 200% annual turnover limit
+
+# Backtesting and Validation Framework
+backtesting:
+  # Walk-forward analysis
+  walk_forward:
+    enabled: true
+    train_window: 1008  # 4 years training
+    test_window: 63     # 3 months testing
+    step_size: 21       # 1 month steps
+    anchored: false     # Rolling window
+  
+  # Transaction costs and market impact
+  transaction_costs:
+    commission: 0.001   # 10 bps commission
+    bid_ask_spread: 0.002  # 20 bps spread
+    market_impact: 0.001   # 10 bps market impact
+    slippage: 0.0005      # 5 bps slippage
+  
+  # Execution modeling
+  execution:
+    fill_probability: 0.95  # 95% fill rate
+    partial_fills: true
+    execution_delay: 1  # 1-day execution delay
+    
+  # Performance metrics
+  performance_metrics:
+    - "total_return"
+    - "annualized_return"
+    - "volatility"
+    - "sharpe_ratio"
+    - "sortino_ratio"
+    - "calmar_ratio"
+    - "max_drawdown"
+    - "var_95"
+    - "expected_shortfall"
+    - "information_ratio"
+    - "tracking_error"
+    - "upside_capture"
+    - "downside_capture"
+    - "regime_attribution"
+
+# Hyperparameter Optimization
+hyperparameter_optimization:
+  enabled: true
+  method: "optuna"
+  
+  # Optimization parameters
+  n_trials: 50  # Reduced from 200 for faster execution
+  optimization_metric: "sharpe_ratio"
+  cv_folds: 3  # Reduced from 5
+  
+  # Parameter search spaces
+  search_spaces:
+    regime_detection:
+      n_regimes: [3, 4, 5]
+      window_size: [10, 15, 20, 25, 30]
+      smoothing_window: [3, 5, 7, 10]
+    
+    deep_learning:
+      lstm_hidden_dims: ["[64, 32]", "[128, 64, 32]", "[256, 128, 64, 32]"]
+      learning_rate: [0.0001, 0.001, 0.01]
+      dropout_rate: [0.1, 0.2, 0.3, 0.4]
+      sequence_length: [15, 21, 30, 45]
+    
+    risk_management:
+      base_position_size: [0.08, 0.10, 0.12, 0.15]
+      confidence_threshold: [0.2, 0.3, 0.4, 0.5, 0.6]
+      vol_target: [0.10, 0.12, 0.15, 0.18, 0.20]
+  
+  # Multi-objective optimization
+  objectives:
+    primary: "sharpe_ratio"
+    secondary: "max_drawdown"  # Minimize drawdown
+    weights: [0.7, 0.3]
+
+# Computational Configuration
+computation:
+  # Performance optimization
+  use_gpu: true
+  parallel_processing: true
+  n_processes: 8  # CPU cores to use
+  
+  # Memory management
+  batch_processing: true
+  lazy_loading: true
+  memory_limit: "16GB"
+  cache_size: "4GB"
+  garbage_collection_frequency: 100
+  
+  # Data storage
+  use_hdf5: true  # Fast data storage format
+  compression: "lz4"  # Fast compression
+  
+  # Logging and monitoring
+  log_level: "INFO"
+  save_intermediate_results: true
+  progress_bars: true
+  memory_monitoring: true
+  
+# Output and Reporting Configuration
+output:
+  # Directory structure
+  base_dir: "output"
+  subdirs:
+    plots: "plots"
+    data: "data"
+    models: "models" 
+    reports: "reports"
+    cache: "cache"
+  
+  # Visualization settings
+  plots:
+    save_format: ["png", "pdf"]
+    dpi: 300
+    style: "seaborn-v0_8"
+    figsize: [12, 8]
+    
+    # Plot types to generate
+    regime_plots: true
+    performance_plots: true
+    risk_plots: true
+    signal_plots: true
+    monte_carlo_plots: true
+    correlation_plots: true
+  
+  # Reporting
+  reports:
+    generate_html: true
+    generate_pdf: true
+    include_interactive_plots: true
+    
+    # Report sections
+    sections:
+      - "executive_summary"
+      - "performance_analysis"
+      - "risk_analysis"
+      - "regime_analysis"
+      - "signal_analysis"
+      - "backtesting_results"
+      - "stress_testing"
+      - "recommendations"
+  
+  # Data exports
+  exports:
+    save_predictions: true
+    save_signals: true
+    save_positions: true
+    save_performance_metrics: true
+    export_format: ["csv", "parquet", "json"]
+
+# Research and Academic Configuration
+research:
+  # Publication preparation
+  paper_ready: true
+  
+  # Research focus areas
+  focus_areas:
+    - "semiconductor_regime_patterns"
+    - "hmm_lstm_ensemble_performance"
+    - "covid_period_regime_analysis"
+    - "cross_asset_regime_spillovers"
+  
+  # Statistical analysis
+  statistical_tests:
+    regime_significance: true
+    performance_significance: true
+    regime_stability: true
+    parameter_stability: true
+  
+  # Robustness checks
+  robustness:
+    bootstrap_analysis: true
+    sensitivity_analysis: true
+    out_of_sample_validation: true
+    regime_permutation_tests: true
+  
+  # Benchmarking
+  benchmarks:
+    - "buy_and_hold"
+    - "equal_weight"
+    - "momentum_strategy"
+    - "mean_reversion_strategy"
+    - "volatility_targeting"
+    - "sector_rotation"
+    - "simple_regime_switching"
+
+# Version and Metadata
+metadata:
+  config_version: "2.0"
+  created_date: "2025-01-20"
+  author: "Lucas Kemper"
+  description: "Enhanced configuration for semiconductor-focused HMM-LSTM regime detection"
+  research_paper: "HMM-LSTM Hybrid Detection of Market Regimes: Evidence from Semiconductor Equity Markets"
+  
+  # Expected improvements with this configuration
+  expected_improvements:
+    - "Sharpe ratio target: >2.0 (from 1.48)"
+    - "Maximum drawdown: <10% (from 1.6%)"
+    - "Win rate: >60% (improved signal quality)"
+    - "Regime detection accuracy: >75%"
+    - "Volatility targeting: Within 2% of target"
+    - "Transaction cost impact: <50bps annually"
+  
+  # Key innovations in this configuration
+  innovations:
+    - "Regime-adaptive risk controls with dynamic stop-losses"
+    - "Multi-trigger adaptive retraining system"
+    - "Ensemble model with transformer architecture"
+    - "Semiconductor-specific feature engineering"
+    - "Dynamic position sizing with Kelly criterion"
+    - "Multi-objective hyperparameter optimization"

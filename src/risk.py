@@ -8,7 +8,7 @@ import pandas as pd
 from scipy import stats
 from scipy.stats import norm
 
-from .regime import MarketRegimeDetector, RegimeConfig
+from src.regime import MarketRegimeDetector, RegimeConfig
 
 
 @dataclass
@@ -17,8 +17,12 @@ class RiskConfig:
 
     # Required parameters with defaults
     confidence_level: float = 0.95
-    max_drawdown_limit: float = 0.20
+    max_drawdown_limit: float = 0.10  # Updated from 0.20 to 0.10 based on grid search results
     volatility_target: float = 0.15
+    
+    # Risk limits from grid search
+    stop_loss: float = 0.02  # 2% stop-loss from best config
+    take_profit: float = 0.30  # 30% take-profit from best config
 
     # Optional parameters with defaults
     var_calculation_method: str = (
@@ -38,7 +42,7 @@ class RiskConfig:
     # Add regime detection configuration
     regime_config: RegimeConfig = field(
         default_factory=lambda: RegimeConfig(
-            n_regimes=3, window_size=21, features=["returns", "volatility"]
+            n_regimes=5, window_size=10, features=["returns", "volatility"]  # Updated to best config
         )
     )
 

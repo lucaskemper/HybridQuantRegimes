@@ -1,0 +1,97 @@
+============================================================
+MARKET REGIME DETECTION & PORTFOLIO ANALYSIS REPORT
+============================================================
+
+[1] DATA SUMMARY
+Assets: AAPL, MSFT, GOOG
+Period: 2020-01-01 to 2023-01-01
+Data points: 755
+Assets: 3
+
+[2] REGIME DETECTION RESULTS
+
+Asset: AAPL
+  Regime nan: 0 periods (0.0%)
+  Regime Very Low Vol: 169 periods (22.4%)
+  Regime Low Vol: 253 periods (33.5%)
+  Regime Very High Vol: 15 periods (2.0%)
+  Regime High Vol: 228 periods (30.2%)
+  Regime Medium Vol: 69 periods (9.1%)
+
+Asset: MSFT
+  Regime nan: 0 periods (0.0%)
+  Regime Low Vol: 199 periods (26.4%)
+  Regime Very Low Vol: 260 periods (34.4%)
+  Regime High Vol: 175 periods (23.2%)
+  Regime Medium Vol: 81 periods (10.7%)
+  Regime Very High Vol: 19 periods (2.5%)
+
+Asset: GOOG
+  Regime nan: 0 periods (0.0%)
+  Regime Low Vol: 162 periods (21.5%)
+  Regime High Vol: 118 periods (15.6%)
+  Regime Very Low Vol: 123 periods (16.3%)
+  Regime Very High Vol: 159 periods (21.1%)
+  Regime Medium Vol: 172 periods (22.8%)
+
+[3] RISK METRICS
+  portfolio_volatility: 0.3275415326828137
+  var_95: -0.032103344190429324
+  expected_shortfall_95: -0.046944468502122534
+  max_drawdown: -0.3452830623157791
+  sharpe_ratio: 0.46584732818168356
+  rolling_volatility: (DataFrame shape: (755, 2))
+  correlation: (DataFrame shape: (3, 3))
+  volatility_ratio: 0.787249610921909
+  drawdown_ratio: 3.1986154241277243
+  risk_adjusted_position: 0.2
+  stress_test: (dict with keys: ['worst_month', 'worst_quarter', 'recovery_time', 'max_consecutive_loss'])
+  sortino_ratio: 0.4494647879755995
+  calmar_ratio: 0.4419108972373401
+  omega_ratio: 1.1157367611890938
+  tail_ratio: 0.9457991432272916
+  market_regime: (dict with keys: ['current_regime', 'regime_mask', 'regime_stats', 'model_validation', 'transition_probs', 'confidence'])
+  risk_decomposition: (dict with keys: ['risk_contribution', 'diversification_score', 'concentration_score'])
+  regime_volatility: 0.2620134453254218
+  regime_var: -0.0281143671820187
+  regime_es: -0.03498440922722012
+
+[4] MONTE CARLO SIMULATION
+  expected_return: 3.454877023501121
+  simulation_volatility: 0.023291209116272027
+  var_95: 3.4171961398255424
+  var_99: 3.402265186823766
+
+[5] BACKTEST RESULTS
+
+Basic Backtest:
+  Cumulative Return: 0.4432
+  Annualized Return: 0.1305
+  Annualized Vol: 0.3442
+  Sharpe: 0.2337
+  Max Drawdown: -0.4515
+
+Risk_Parity Backtest:
+  Cumulative Return: 0.4432
+  Annualized Return: 0.1305
+  Annualized Vol: 0.3442
+  Sharpe: 0.2337
+  Max Drawdown: -0.4515
+
+Risk_Managed Backtest:
+  Cumulative Return: -0.1462
+  Annualized Return: -0.0514
+  Annualized Vol: 0.1234
+  Sharpe: -0.8220
+  Max Drawdown: -0.2496
+
+[6] BENCHMARK COMPARISON
+              Strategy  Cumulative Return  Annualized Return  Annualized Vol  Sharpe                                    Max Drawdown  VaR 95%
+0  Regime-Aware Signal             0.4340             0.1274          0.1191  1.0700  Regime-Aware Signal   -0.197881
+dtype: float64  -0.0109
+1        QQQ (Passive)             0.2540             0.1198          0.2969  0.4035        QQQ (Passive)   -0.390021
+dtype: float64  -0.0302
+2       QQQ 50/200 SMA             0.2048             0.0718          0.1384  0.5187       QQQ 50/200 SMA   -0.196182
+dtype: float64  -0.0148
+
+============================================================
