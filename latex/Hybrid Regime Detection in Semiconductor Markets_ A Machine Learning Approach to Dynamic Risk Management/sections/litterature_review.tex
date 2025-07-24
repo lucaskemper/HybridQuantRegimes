@@ -1,0 +1,37 @@
+\section{Literature Review}
+
+\subsection{Regime Detection in Financial Markets}
+The identification of distinct market regimes—periods characterized by differences in volatility, return distribution, and cross-asset correlation—has long been central to quantitative finance. Hidden Markov Models (HMMs) offer a probabilistic and interpretable framework for classifying discrete regimes and estimating transition dynamics \cite{hamilton1989new}. These models have been successfully employed to capture bull/bear markets, volatility clustering, and crisis periods \cite{ang2002international}. Extensions such as Markov-switching GARCH (MS-GARCH) improve modeling of state-dependent volatility, though they retain key limitations in flexibility and scalability across asset classes \cite{klaassen2002improving}.
+
+Despite their strengths in interpretable regime modeling, HMM-based approaches generally assume linear transition structures and are limited in capturing nonlinear dependencies, long-term memory effects, or high-dimensional feature dynamics. These constraints have motivated the exploration of modern machine learning techniques.
+
+\subsection{Deep Learning Approaches in Financial Time Series Modeling}
+Deep learning methods, especially sequence models such as Long Short-Term Memory (LSTM) networks, have demonstrated strong empirical success in financial time series forecasting \cite{fischer2018deep, nelson2017stock}. These networks are particularly adept at capturing complex patterns and autocorrelation structures over longer sequences. More recently, attention-based architectures such as Transformers \cite{vaswani2017attention} have gained traction due to their scalability, parallelism, and ability to model variable-length dependencies. In finance, variants like Temporal Fusion Transformers \cite{lim2021temporal} have shown promise for interpretability and regime-aware modeling.
+
+However, despite their flexibility, deep learning models often lack built-in probabilistic reasoning, making it difficult to quantify uncertainty—an essential requirement for risk-sensitive applications. Their high capacity also increases vulnerability to overfitting in low-instance or high-noise regimes, and limits their interpretability in practice.
+
+\subsection{Hybrid and Ensemble Regime Modeling}
+To overcome the limitations of standalone models, recent research has explored hybrid frameworks that blend deep learning with probabilistic time series models. For instance, De Prado \cite{deprado2018advances} advocates for machine learning ensemble architectures in financial applications and stresses the importance of combining orthogonal modeling assumptions. Rossi et al. \cite{rossi2020bayesian} demonstrate that Bayesian model averaging improves regime classification robustness by dynamically weighting model outputs based on confidence or evidence criteria.
+
+Xu et al. \cite{xu2021hybrid} propose a hybrid approach combining HMMs with LSTM architectures for detecting market phases in equity indices. Similarly, Yoon \& Kim \cite{yoon2022transformerhmm} create a Transformer-HMM fusion model that augments attention-based forecasts with regime likelihoods to inform allocation decisions. Yet, these approaches focus primarily on broad indices or benchmark asset classes—neglecting the sector-specific complexities found in semiconductors.
+
+\subsection{Semiconductor Equity Characteristics and Volatility Dynamics}
+The semiconductor sector is subject to highly idiosyncratic dynamics, driven by innovation cycles, geopolitical tensions (e.g., US-China chip conflicts), cyclical demand shifts, and extreme supply chain sensitivity \cite{icinsights2023, bcg2021}. This results in frequent regime shifts that are harder to predict with traditional models.
+
+Empirical studies, such as An \& Kang \cite{an2019volatility}, have documented volatility clustering and business-cycle sensitivity unique to semiconductor firms versus other tech industries. Yet few academic works have developed specialized quantitative frameworks for detecting these transitions or adapting portfolio risk when new regimes emerge.
+
+\subsection{Regime-Aware Risk Management and Dynamic Allocation}
+Dynamic, regime-aware asset allocation adjusts risk exposure (e.g., leverage, position size) in response to detected market states \cite{ilmanen2011expected, mcneil2015quantitative}. Regime signals have been used to modulate portfolio beta, toggle trading strategies, and change hedging approaches \cite{ang2012regime}. Tail-aware strategies incorporating regime-dependent Value-at-Risk (VaR) or Expected Shortfall (ES) improve drawdown control and portfolio resilience under uncertainty.
+
+Recent advances (e.g., Kraft et al. \cite{kraft2020machine}, Bianchi et al. \cite{bianchi2022machine}) apply machine learning-based regime classifiers for real-time risk adjustment, sometimes incorporating implied volatility (VIX), macro indicators, or financial stress indexes. However, few combine these techniques with sector-specific hybrid models or test them under realistic backtesting, with transaction costs and Monte Carlo scenario analysis.
+
+\subsection{Research Gap and Contribution}
+Despite progress in regime classification using HMMs, deep learning, and ensemble models, there remains a clear gap in the literature:
+
+\begin{itemize}
+    \item Few studies focus on regime modeling tailored to sector-specific challenges, especially in semiconductors.
+    \item Most hybrid or ensemble methods lack market-aware risk controls or realistic pipeline integration.
+    \item Prior work frequently omits robust empirical testing across multiple regimes—including backtesting and scenario analysis incorporating real-world portfolio frictions.
+\end{itemize}
+
+This work fills that gap by proposing a modular hybrid framework that combines HMM and LSTM/Transformer-based models using Bayesian model averaging for regime classification, and integrates these outputs directly into a risk management engine. The system adapts position sizing and risk exposure dynamically, leveraging semiconductor-specific features (e.g., memory vs. logic spreads, PMI data, design/equipment ratios). Through detailed empirical evaluation and scenario stress testing, we demonstrate that our approach improves regime detection accuracy and delivers stable risk-adjusted returns in volatile market environments.
