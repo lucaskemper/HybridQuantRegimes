@@ -1,4 +1,4 @@
-# HMM-LSTM Hybrid Market Regime Detection System
+# HybridQuantRegimes
 
 ## Table of Contents
 - [Overview](#overview)
