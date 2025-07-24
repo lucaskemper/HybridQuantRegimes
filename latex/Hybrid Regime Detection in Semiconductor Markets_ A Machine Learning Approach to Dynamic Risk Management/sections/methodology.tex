@@ -1,85 +1,53 @@
 \section{Methodology}
 
-\subsection{Data Description}
-I analyze daily return data from four major semiconductor companies (NVDA, AMD, INTC, ASML) from January 2017 to December 2023, comprising 1,759 trading days. The portfolio weights are allocated as follows: NVDA (40\%), AMD (30\%), INTC (15\%), and ASML (15\%). This weighting scheme reflects both market capitalization and liquidity considerations \citep{alexander2008market}.
+\subsection{1. Data \& Features}
+We construct our asset universe from major semiconductor equities and sector ETFs, including \texttt{SMH}, \texttt{SOXX}, \texttt{NVDA}, \texttt{AMD}, \texttt{TSM}, \texttt{INTC}, \texttt{QCOM}, and \texttt{AVGO}. The primary sample period spans from January 1, 2019 to January 1, 2024, with daily frequency, as detailed in our configuration and results summary.
 
-\subsection{Hybrid Regime Detection Framework}
+Feature engineering is central to our approach. We extract a rich set of price-based features (returns, log-returns, realized and exponential volatility, momentum over multiple windows, rolling skewness and kurtosis), technical indicators (RSI, MACD, Bollinger position, Williams~\%R, on-balance volume), and sector-specific signals (semiconductor PMI proxy, memory vs. logic spread, equipment vs. design volatility ratio). Macro proxies such as VIX, yield spreads, and dollar strength are also included, either from external data or as rolling proxies.
 
-\subsubsection{Base Configuration}
-The regime detection framework \citep{ang2002regime} is configured with the following parameters, as implemented in the codebase:
-\begin{itemize}
-    \item Number of regimes: 3 (Low, Medium, High Volatility)
-    \item Window size: 21 trading days
-    \item Minimum regime duration: 21 days
-    \item Smoothing window: 5 days
-    \item Feature set: returns, volatility, momentum
-\end{itemize}
+Data cleaning involves forward-filling missing values, winsorizing extreme feature values (1st/99th percentiles), and standardizing all features using a robust or standard scaler. This ensures comparability and stability for downstream modeling.
 
-\subsubsection{Hidden Markov Model Component}
-The HMM implementation \citep{hamilton1989new} serves as the foundation of the regime detection system, utilizing:
-\begin{itemize}
-    \item Volatility-based state identification
-    \item Empirical quantile thresholds (33rd and 67th percentiles)
-    \item Maximum likelihood estimation for transition probabilities
-    \item Robust fallback mechanism for model convergence
-\end{itemize}
+\subsection{2. Regime Detection Models}
+We employ a hybrid regime detection framework combining a Gaussian Hidden Markov Model (HMM) and a deep learning-based LSTM classifier. The HMM is initialized using KMeans clustering and fit to the engineered features, learning latent market regimes characterized by distinct volatility and return profiles. The number of regimes (typically 3--5) is a configurable hyperparameter.
 
-\subsubsection{LSTM Enhancement}
-The deep learning component \citep{hochreiter1997long, fischer2018deep} augments the base HMM with:
-\begin{itemize}
-    \item Sequential feature processing
-    \item LSTM implementation with configurable parameters
-    \item Standard optimization parameters
-    \item Binary classification output
-\end{itemize}
+The LSTM model is trained on the same features, using the HMM's regime assignments as initial labels. The LSTM architecture includes multiple (optionally bidirectional) layers, attention mechanisms, dropout, and batch normalization, enabling it to capture nonlinear and temporal dependencies in regime dynamics.
 
-\subsubsection{Regime Smoothing}
-The framework implements a smoothing mechanism to reduce spurious regime transitions:
-\begin{equation}
-R_t = \text{mode}(R_{t-w}, ..., R_t, ..., R_{t+w})
-\end{equation}
-where $w$ is the smoothing window size (default: 5 days).
+Regime assignments are smoothed using a rolling mode filter to reduce spurious switching. Confidence thresholds are applied to flag uncertain periods.
 
-\subsection{Risk Assessment Framework}
+\subsection{3. Model Fusion / Ensemble}
+To leverage the complementary strengths of HMM (interpretable, probabilistic) and LSTM (flexible, nonlinear), we fuse their outputs using Bayesian model averaging. Regime probabilities from both models are combined, with weights determined by recent predictive entropy or log-evidence. Entropy is computed over the regime probability vector at each timestep, and used to inversely weight low-confidence predictions during the fusion process. This ensemble approach improves robustness, especially during regime transitions or periods of model uncertainty.
 
-\subsubsection{Regime-Dependent Risk Metrics}
-For each identified regime \citep{mcneil2000estimation}, I calculate:
-\begin{itemize}
-    \item Value at Risk (95\% confidence level)
-    \item Expected Shortfall \citep{artzner1999coherent}
-    \item Volatility using 21-day and 63-day windows
-    \item Information ratios and regime-specific Sharpe ratios
-\end{itemize}
+Fusing models, rather than selecting a single approach, allows the system to adapt to changing market conditions and mitigates overfitting to any one modeling assumption.
 
-\subsubsection{Position Sizing}
-Position sizes are determined through a dynamic scaling approach:
-\begin{equation}
-P_t = \min(\max(P_b \cdot v_t, P_{min}), P_{max})
-\end{equation}
-where:
-\begin{itemize}
-    \item $P_b$ is the base position size
-    \item $v_t$ is the volatility scaling factor
-    \item $P_{min}, P_{max}$ are position limits
-\end{itemize}
+\subsection{4. Trading Signal Generation}
+Trading signals are generated using a momentum-based approach, combining short- and medium-term return sums, moving average crossovers, and price position relative to recent highs. Signals are clipped to the range $[-1, 1]$ and can be further normalized.
 
-\subsection{Implementation Status}
-The current implementation represents a proof-of-concept system developed in Python 3.10+:
+These continuous signals inform both directional positioning and sizing, depending on regime context---e.g., net long exposure during positive momentum in low-volatility regimes. Detected regimes influence signal interpretation and position sizing. For example, signals may be down-weighted or ignored in high-volatility regimes, or amplified in stable regimes. Signal quality is monitored via forward correlation with returns and basic diagnostics.
 
-\subsubsection{Core Components}
-\begin{itemize}
-    \item TensorFlow for basic LSTM implementation
-    \item hmmlearn for HMM modeling
-    \item pandas and numpy for data processing
-    \item scikit-learn for preprocessing and validation
-\end{itemize}
+\subsection{5. Risk Management Strategy}
+Risk is managed dynamically at both the signal and portfolio levels. Key metrics include Value-at-Risk (VaR), Expected Shortfall (ES), annualized volatility, Sharpe and Calmar ratios, and maximum drawdown. These are computed using historical, parametric, or Monte Carlo methods as appropriate.
 
-\subsubsection{Current Limitations}
-\begin{itemize}
-    \item Basic integration of HMM and LSTM methods
-    \item Initial test coverage and validation framework
-    \item Limited error handling capabilities
-    \item Complex result structures requiring detailed knowledge
-\end{itemize}
+Position sizing is adjusted based on regime confidence, recent volatility, and drawdown ratios. For example, in high-risk regimes or after large drawdowns, position sizes are automatically reduced. Stop-loss, take-profit, and maximum drawdown limits are enforced at the portfolio level.
 
-The implementation provides a foundation for future development while demonstrating the feasibility of the hybrid approach.
+\subsection{6. Backtesting Framework}
+Model performance is evaluated using a modular backtesting engine. The framework supports configurable transaction costs, slippage, leverage, and rebalancing frequency (daily, monthly, etc.). Both single-period and walk-forward (rolling window) backtests are supported.
+
+All model training and signal generation occur using past data only, ensuring no lookahead bias. Walk-forward analysis further validates generalizability across market regimes.
+
+Performance metrics include total and annualized return, volatility, Sharpe and Calmar ratios, win rate, and turnover. Diagnostics such as position histories, trade counts, and confidence metrics are tracked for transparency.
+
+\subsection{7. Scenario Analysis (Monte Carlo)}
+To assess tail risk and model robustness, we simulate alternative return paths using bootstrap-based Monte Carlo methods. Thousands of synthetic return series are generated by resampling historical returns, and portfolio metrics (e.g., VaR, ES, drawdown) are computed across these scenarios. Optionally, regime-conditional or heavy-tailed (t-distribution) models can be substituted for bootstrap simulation to stress rare-event risk. This allows for quantification of uncertainty and stress-testing under extreme but plausible conditions.
+
+\subsection{8. Overall System Design}
+The entire framework is modular and extensible, with clear separation between data processing, feature engineering, regime detection, signal generation, risk management, and backtesting. Each component can be independently configured or replaced.
+
+Components are connected end-to-end via standardized data structures (primarily pandas DataFrames), enabling seamless integration and reproducibility. The system is designed to support both batch (historical) and real-time operation, with hooks for live data updates and online regime detection.
+
+% System pipeline flowchart (for formal submission, consider converting to a figure)
+\paragraph{System Pipeline:}
+\begin{center}
+\begin{tabular}{c}
+Data $\rightarrow$ Feature Engineering $\rightarrow$ HMM \& LSTM $\rightarrow$ BMA (Ensemble) $\rightarrow$ Signals $\rightarrow$ Risk Engine $\rightarrow$ Backtest $\rightarrow$ Evaluation
+\end{tabular}
+\end{center}

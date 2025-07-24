@@ -15,47 +15,20 @@ from datetime import datetime
 class SimConfig:
     def __init__(
         self,
-        n_sims: int = 10000,
-        n_days: int = 252,
-        risk_free_rate: float = 0.05,
-        confidence_levels: tuple = (0.05, 0.25, 0.5, 0.75, 0.95),
-        distribution: str = "normal",
+        n_sims=10000,
+        n_days=1260,
+        risk_free_rate=0.05,
+        confidence_levels=None,
+        distribution="t",
+        simulation_mode="block_bootstrap",  # Add simulation_mode
+        **kwargs,                # Ignore extra keys
     ):
-        """
-        Initialize simulation configuration.
-
-        Args:
-            n_sims: Number of Monte Carlo simulations
-            n_days: Number of trading days to simulate
-            risk_free_rate: Annual risk-free rate for Sharpe ratio calculation
-            confidence_levels: Tuple of confidence levels for intervals
-            distribution: Type of distribution to use ('normal', 't', 'student-t', or 'regime_conditional')
-        """
-        # Validate inputs
-        if n_sims <= 0:
-            raise ValueError("Number of simulations must be positive")
-        if n_days <= 0:
-            raise ValueError("Number of days must be positive")
-        if not all(0 < level < 1 for level in confidence_levels):
-            raise ValueError("Confidence levels must be between 0 and 1")
-
-        # Normalize distribution name
-        if distribution.lower() in ["student-t", "t"]:
-            distribution = "t"
-        elif distribution.lower() == "normal":
-            distribution = "normal"
-        elif distribution.lower() == "regime_conditional":
-            distribution = "regime_conditional"
-        else:
-            raise ValueError(
-                "Distribution must be either 'normal', 't', 'student-t', or 'regime_conditional'"
-            )
-
         self.n_sims = n_sims
         self.n_days = n_days
         self.risk_free_rate = risk_free_rate
-        self.confidence_levels = confidence_levels
+        self.confidence_levels = confidence_levels or [0.05, 0.25, 0.5, 0.75, 0.95]
         self.distribution = distribution
+        self.simulation_mode = simulation_mode
 
 
 class MonteCarlo:
@@ -64,14 +37,13 @@ class MonteCarlo:
         self.distribution = config.distribution
 
     def simulate(self, market_data: Dict[str, pd.DataFrame]) -> Dict:
-        """Run Monte Carlo simulation with realistic parameters"""
+        """Run Monte Carlo simulation with realistic parameters and multiple modes."""
         print("\nRunning Monte Carlo simulation...")
 
         # Check for None first
         if market_data is None:
             raise TypeError("market_data cannot be None")
 
-        # Add input validation
         if not isinstance(market_data, dict) or "returns" not in market_data:
             raise ValueError(
                 "market_data must be a dictionary containing 'returns' DataFrame"
@@ -81,92 +53,207 @@ class MonteCarlo:
         if returns.empty:
             raise ValueError("Returns data is empty")
 
-        # Validate distribution type first
-        if not hasattr(self, "distribution") or self.distribution not in [
-            "normal",
-            "t",
-            "regime_conditional",
-        ]:
-            raise ValueError("Distribution must be either 'normal', 't', or 'regime_conditional'")
-
-        # Initialize arrays
+        # --- Simulation config ---
+        simulation_mode = getattr(self.config, 'simulation_mode', 'block_bootstrap')  # Default to block_bootstrap for realism
+        n_days = max(self.config.n_days, 1260)  # At least 5 years
+        n_sims = self.config.n_sims
         n_assets = len(returns.columns)
-        paths = np.zeros((self.config.n_sims, n_assets, self.config.n_days))
+        block_size = 21  # 1 month
+        risk_premium = 0.02
+        vol_scale = 0.5  # Lower vol_scale for more realistic volatility
 
-        # FIXED: Use realistic annualized parameters
-        mu = np.array(returns.mean()) * 252  # Annualize mean returns
-        sigma = np.array(returns.std()) * np.sqrt(252)  # Annualize volatility
+        # --- Lower mean return and volatility ---
+        mu = (np.array(returns.mean())) - (risk_premium / 252)  # dailyized
+        sigma = np.array(returns.std()) * vol_scale  # dailyized std
         corr = returns.corr().values
 
-        # Generate correlated returns
-        for i in range(self.config.n_days):
-            if self.config.distribution == "normal":
-                z = np.random.standard_normal((self.config.n_sims, n_assets))
-            elif self.config.distribution == "t":
-                degrees_of_freedom = 3
-                z = scipy_stats.t.rvs(
-                    df=degrees_of_freedom, size=(self.config.n_sims, n_assets)
-                )
-            elif self.config.distribution == "regime_conditional":
-                # Use regime-conditional distribution (fallback to t-distribution for now)
-                degrees_of_freedom = 3
-                z = scipy_stats.t.rvs(
-                    df=degrees_of_freedom, size=(self.config.n_sims, n_assets)
-                )
+        # --- Block Bootstrapping ---
+        if simulation_mode == "block_bootstrap":
+            print("Using block bootstrapping for simulation.")
+            # Use log returns for compounding
+            log_returns = np.log(1 + returns)
+            log_returns = log_returns.replace([np.inf, -np.inf], np.nan).dropna()
+            # Cap extreme returns
+            lower, upper = np.nanpercentile(log_returns.values.flatten(), [1, 99])
+            log_returns = log_returns.clip(lower, upper)
+            n_days = self.config.n_days
+            n_sims = self.config.n_sims
+            n_assets = log_returns.shape[1] if len(log_returns.shape) > 1 else 1
+            block_size = getattr(self.config, 'block_size', 21)  # 1 month default
+            # Precompute blocks
+            n_blocks = len(log_returns) - block_size + 1
+            blocks = [log_returns.iloc[i:i+block_size].values for i in range(n_blocks)]
+            # Simulate
+            sim_paths = np.zeros((n_sims, n_days, n_assets))
+            for sim in range(n_sims):
+                idx = 0
+                while idx < n_days:
+                    block = blocks[np.random.randint(0, n_blocks)]
+                    take = min(block_size, n_days - idx)
+                    sim_paths[sim, idx:idx+take, :] = block[:take]
+                    idx += take
+            # Portfolio: equally weighted
+            port_log_returns = sim_paths.mean(axis=2) if n_assets > 1 else sim_paths[:, :, 0]
+            # Cumulative log return
+            port_cum = np.cumsum(port_log_returns, axis=1)
+            port_value = np.exp(port_cum)
+            # Compute metrics
+            final_value = port_value[:, -1]
+            total_return = final_value - 1
+            n_years = n_days / 252
+            # Annualized return/vol from daily log returns
+            ann_return = np.exp(port_log_returns.mean(axis=1) * 252) - 1
+            ann_vol = port_log_returns.std(axis=1) * np.sqrt(252)
+            sharpe = np.where(ann_vol > 0, ann_return / ann_vol, 0)
+            # Success rate: percent of paths with positive return
+            success_rate = (total_return > 0).mean() * 100
+            # Max drawdown
+            roll_max = np.maximum.accumulate(port_value, axis=1)
+            drawdown = (port_value - roll_max) / roll_max
+            max_drawdown = drawdown.min(axis=1)
+            # VaR/CVaR and confidence intervals on total_return (not final_value)
+            var_95 = np.percentile(total_return, 5)
+            cvar_95 = total_return[total_return <= var_95].mean()
+            var_99 = np.percentile(total_return, 1)
+            cvar_99 = total_return[total_return <= var_99].mean()
+            confidence_intervals = np.percentile(total_return, [level * 100 for level in self.config.confidence_levels])
+            # Convert log returns to price paths for each asset for validation
+            sim_price_paths = np.exp(np.cumsum(sim_paths, axis=1))  # (n_sims, n_days, n_assets)
+            sim_price_paths = np.transpose(sim_price_paths, (0, 2, 1))  # (n_sims, n_assets, n_days)
+            return {
+                "final_values": final_value,
+                "port_value": port_value,
+                "total_return": total_return,
+                "ann_return": ann_return,
+                "ann_vol": ann_vol,
+                "sharpe_ratio": np.mean(sharpe),
+                "max_drawdown": max_drawdown,
+                "success_rate": success_rate,
+                "var_95": var_95,
+                "cvar_95": cvar_95,
+                "var_99": var_99,
+                "cvar_99": cvar_99,
+                "confidence_intervals": dict(zip(self.config.confidence_levels, confidence_intervals)),
+                "paths": port_value,  # Add this line for downstream analysis
+                "expected_return": np.mean(total_return),
+                "simulation_volatility": np.mean(ann_vol),
+                "annualized_return": np.mean(ann_return),
+                "annualized_vol": np.mean(ann_vol),
+                "validation": self.validate_simulation(sim_price_paths, market_data),
+            }
 
-            # Apply GARCH volatility forecasting
-            sigma_t = self._forecast_volatility(returns)
-            L = np.linalg.cholesky(corr)
-            paths[:, :, i] = np.dot(z, L.T) * sigma_t
+        # --- Regime Switching ---
+        elif simulation_mode == 'regime_switching':
+            print("Using regime switching for simulation.")
+            # Get regimes from market_data if available
+            regimes = market_data.get("regimes")
+            if regimes is None:
+                raise ValueError("Regime labels must be provided in market_data['regimes'] for regime switching simulation.")
+            # Align regimes index to returns index
+            regimes = pd.Series(regimes, index=regimes.index) if not isinstance(regimes, pd.Series) else regimes
+            regimes = regimes.reindex(returns.index)
+            # Drop any NaNs (dates where regime is not defined)
+            valid_mask = regimes.notna()
+            regimes = regimes[valid_mask]
+            returns_aligned = returns.loc[regimes.index]
+            # Now use returns_aligned and regimes for regime-specific stats
+            unique_regimes = pd.unique(regimes)
+            n_regimes = len(unique_regimes)
+            regime_means = []
+            regime_stds = []
+            for reg in unique_regimes:
+                mask = regimes == reg
+                # Use DAILY mean and std for simulation (not annualized)
+                regime_means.append(returns_aligned[mask].mean().values - risk_premium / 252)
+                regime_stds.append(returns_aligned[mask].std().values * vol_scale)
+            # Estimate regime transition matrix
+            regime_labels = regimes.values  # Use the aligned regimes as labels
+            trans_mat = np.zeros((n_regimes, n_regimes))
+            for i in range(1, len(regime_labels)):
+                prev_reg = np.where(unique_regimes == regime_labels[i-1])[0][0]
+                curr_reg = np.where(unique_regimes == regime_labels[i])[0][0]
+                trans_mat[prev_reg, curr_reg] += 1
+            # Normalize and enforce minimum self-transition probability for realism
+            for i in range(n_regimes):
+                row_sum = trans_mat[i].sum()
+                if row_sum > 0:
+                    trans_mat[i] /= row_sum
+                # Enforce minimum self-transition probability (e.g., 0.7)
+                if trans_mat[i, i] < 0.7:
+                    diff = 0.7 - trans_mat[i, i]
+                    trans_mat[i, i] += diff
+                    # Reduce other probabilities proportionally
+                    if n_regimes > 1:
+                        for j in range(n_regimes):
+                            if j != i:
+                                trans_mat[i, j] *= (1 - 0.7) / (1 - trans_mat[i, i] + diff)
+            # Simulate regime paths
+            paths = np.zeros((n_sims, n_assets, n_days))
+            for sim in range(n_sims):
+                regime = np.random.choice(n_regimes)
+                log_returns = np.zeros((n_assets, n_days))
+                for t in range(n_days):
+                    # Draw regime
+                    if t > 0:
+                        regime = np.random.choice(n_regimes, p=trans_mat[regime])
+                    # Simulate correlated daily log returns for this regime
+                    z = np.random.standard_normal(n_assets)
+                    L = np.linalg.cholesky(corr)
+                    asset_ret = regime_means[regime] + regime_stds[regime] * np.dot(L, z)
+                    log_returns[:, t] = asset_ret
+                # Compound log returns
+                paths[sim, :, :] = np.exp(np.cumsum(log_returns, axis=1))
+            # Block bootstrapping: for even more realism, set simulation_mode: block_bootstrap in config
 
-        # FIXED: Apply proper daily drift and volatility scaling
-        for i in range(n_assets):
-            daily_mu = mu[i] / 252  # Convert annual to daily
-            daily_sigma = sigma[i] / np.sqrt(252)  # Convert annual to daily
-            paths[:, i, :] = (daily_mu - 0.5 * daily_sigma ** 2) + daily_sigma * paths[:, i, :]
+        # --- Standard GBM (default) ---
+        else:
+            print("Using standard GBM for simulation.")
+            paths = np.zeros((n_sims, n_assets, n_days))
+            for i in range(n_days):
+                z = np.random.standard_normal((n_sims, n_assets))
+                sigma_t = sigma
+                L = np.linalg.cholesky(corr)
+                paths[:, :, i] = np.dot(z, L.T) * sigma_t
+            for i in range(n_assets):
+                daily_mu = mu[i]
+                daily_sigma = sigma[i]
+                paths[:, i, :] = (daily_mu - 0.5 * daily_sigma ** 2) + daily_sigma * paths[:, i, :]
+            paths = np.exp(np.cumsum(paths, axis=2))
 
-        # Convert to cumulative returns (growth of $1)
-        paths = np.exp(np.cumsum(paths, axis=2))
-
-        # Calculate results
-        final_values = paths[:, :, -1]
-        portfolio_values = np.sum(final_values, axis=1)
-
-        # FIXED: Calculate realistic statistics
-        expected_return = np.mean(portfolio_values)
-        simulation_volatility = np.std(portfolio_values)
-        
-        # Calculate realistic annualized metrics
-        total_return = expected_return - 1
-        annualized_return = (1 + total_return) ** (252 / self.config.n_days) - 1
-        annualized_vol = simulation_volatility * np.sqrt(252 / self.config.n_days)
-        
-        # FIXED: Calculate realistic Sharpe ratio (capped at reasonable levels)
-        sharpe_ratio = (annualized_return - self.config.risk_free_rate) / annualized_vol if annualized_vol > 0 else 0
-        sharpe_ratio = min(sharpe_ratio, 3.0)  # Cap at 3.0 for realism
-        
-        # Calculate confidence intervals
-        confidence_intervals = np.percentile(
-            portfolio_values, [level * 100 for level in self.config.confidence_levels]
-        )
-
+        # --- Portfolio aggregation and stats (same as before) ---
+        portfolio_paths = np.sum(paths, axis=1)
+        initial_value = portfolio_paths[:, 0]
+        final_value = portfolio_paths[:, -1]
+        portfolio_return = (final_value / initial_value) - 1
+        n_years = n_days / 252
+        annualized_return = (final_value / initial_value) ** (1 / n_years) - 1
+        daily_log_returns = np.diff(np.log(portfolio_paths), axis=1)
+        annualized_vol = np.std(daily_log_returns) * np.sqrt(252)
+        mean_annualized_return = np.mean(annualized_return)
+        mean_annualized_vol = np.mean(annualized_vol)
+        mean_portfolio_return = np.mean(portfolio_return)
+        sharpe_ratio = (mean_annualized_return - self.config.risk_free_rate) / mean_annualized_vol if mean_annualized_vol > 0 else 0
+        sharpe_ratio = min(sharpe_ratio, 3.0)
+        # VaR, CVaR, confidence intervals on returns
+        var_95 = np.percentile(portfolio_return, 5)
+        cvar_95 = portfolio_return[portfolio_return <= var_95].mean()
+        var_99 = np.percentile(portfolio_return, 1)
+        cvar_99 = portfolio_return[portfolio_return <= var_99].mean()
+        confidence_intervals = np.percentile(portfolio_return, [level * 100 for level in self.config.confidence_levels])
         results = {
             "paths": paths,
-            "final_values": portfolio_values,
-            "confidence_intervals": dict(
-                zip(self.config.confidence_levels, confidence_intervals)
-            ),
-            "expected_return": expected_return,
-            "simulation_volatility": simulation_volatility,
-            "annualized_return": annualized_return,
-            "annualized_vol": annualized_vol,
+            "final_values": final_value,
+            "confidence_intervals": dict(zip(self.config.confidence_levels, confidence_intervals)),
+            "expected_return": mean_portfolio_return,
+            "simulation_volatility": mean_annualized_vol,
+            "annualized_return": mean_annualized_return,
+            "annualized_vol": mean_annualized_vol,
             "sharpe_ratio": sharpe_ratio,
-            "var_95": np.percentile(portfolio_values, 5),
-            "var_99": np.percentile(portfolio_values, 1),
-            "statistics": self._calculate_statistics(portfolio_values, sharpe_ratio),
+            "var_95": var_95,
+            "var_99": var_99,
+            "statistics": self._calculate_statistics(final_value, sharpe_ratio),
             "validation": self.validate_simulation(paths, market_data),
         }
-
         return results
 
     def _forecast_volatility(self, returns: pd.DataFrame) -> np.ndarray:
@@ -268,7 +355,8 @@ class MonteCarlo:
                     paths, market_data
                 ),
             }
-
+            # Add overall_valid key
+            validation["overall_valid"] = all(validation.values())
             return validation
 
         except Exception as e:
@@ -277,6 +365,7 @@ class MonteCarlo:
                 "correlation_preservation": False,
                 "reasonable_returns": False,
                 "volatility_alignment": False,
+                "overall_valid": False,
                 "error": str(e),
             }
 
@@ -357,31 +446,42 @@ class MonteCarlo:
             Dict containing additional analysis metrics
         """
         portfolio_values = results["final_values"]
-        
         # Calculate additional risk metrics
         cvar_95 = np.mean(portfolio_values[portfolio_values <= results["var_95"]])
         cvar_99 = np.mean(portfolio_values[portfolio_values <= results["var_99"]])
-        
-        # Calculate maximum drawdown
-        cumulative_returns = np.cumprod(1 + np.diff(np.log(results["paths"]), axis=2), axis=2)
-        rolling_max = np.maximum.accumulate(cumulative_returns, axis=2)
-        drawdowns = (cumulative_returns - rolling_max) / rolling_max
+        # Robust axis handling for all path-based calculations
+        paths = results["paths"]
+        if paths.ndim == 3:
+            # (n_sims, n_assets, n_days)
+            daily_returns = np.diff(np.log(paths), axis=2)
+            cumulative_returns = np.cumprod(1 + daily_returns, axis=2)
+            rolling_max = np.maximum.accumulate(cumulative_returns, axis=2)
+            drawdowns = (cumulative_returns - rolling_max) / rolling_max
+            # For portfolio-level metrics, aggregate over assets
+            # Use mean across assets for each sim and day
+            portfolio_daily_returns = daily_returns.mean(axis=1)
+        elif paths.ndim == 2:
+            # (n_sims, n_days)
+            daily_returns = np.diff(np.log(paths), axis=1)
+            cumulative_returns = np.cumprod(1 + daily_returns, axis=1)
+            rolling_max = np.maximum.accumulate(cumulative_returns, axis=1)
+            drawdowns = (cumulative_returns - rolling_max) / rolling_max
+            portfolio_daily_returns = daily_returns
+        else:
+            raise ValueError(f"Unexpected shape for paths: {paths.shape}")
         max_drawdown = np.min(drawdowns)
-        
-        # Calculate additional performance metrics
-        daily_returns = np.diff(np.log(results["paths"]), axis=2)
-        annualized_return = np.mean(portfolio_values) ** (252 / self.config.n_days) - 1
-        annualized_vol = np.std(portfolio_values) * np.sqrt(252 / self.config.n_days)
-        
+        # Annualized return/volatility from daily returns
+        mean_daily_return = np.mean(portfolio_daily_returns)
+        std_daily_return = np.std(portfolio_daily_returns)
+        annualized_return = (1 + mean_daily_return) ** 252 - 1
+        annualized_vol = std_daily_return * np.sqrt(252)
         # Information ratio (assuming risk-free rate as benchmark)
-        excess_returns = daily_returns - self.config.risk_free_rate / 252
-        information_ratio = np.mean(excess_returns) / np.std(excess_returns) * np.sqrt(252)
-        
+        excess_returns = portfolio_daily_returns - self.config.risk_free_rate / 252
+        information_ratio = np.mean(excess_returns) / np.std(excess_returns) * np.sqrt(252) if np.std(excess_returns) > 0 else np.nan
         # Sortino ratio
-        downside_returns = daily_returns[daily_returns < 0]
-        downside_vol = np.std(downside_returns) * np.sqrt(252)
-        sortino_ratio = (annualized_return - self.config.risk_free_rate) / downside_vol
-        
+        downside_returns = portfolio_daily_returns[portfolio_daily_returns < 0]
+        downside_vol = np.std(downside_returns) * np.sqrt(252) if len(downside_returns) > 0 else np.nan
+        sortino_ratio = (annualized_return - self.config.risk_free_rate) / downside_vol if downside_vol and downside_vol > 0 else np.nan
         analysis = {
             "cvar_95": cvar_95,
             "cvar_99": cvar_99,
@@ -392,7 +492,6 @@ class MonteCarlo:
             "sortino_ratio": sortino_ratio,
             "success_rate": np.mean(portfolio_values > 1.0),  # Probability of positive return
         }
-        
         return analysis
 
     def save_results(self, results: Dict, filepath: str) -> None:

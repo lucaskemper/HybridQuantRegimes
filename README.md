@@ -1,353 +1,305 @@
-# Enhanced Market Regime Detection and Portfolio Analysis System
+# HMM-LSTM Hybrid Market Regime Detection System
 
-A comprehensive quantitative finance pipeline for market regime detection, signal generation, risk management, and portfolio analysis using machine learning and statistical methods.
+## Table of Contents
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Architecture](#architecture)
+- [Technical Details](#technical-details)
+  - [1. Regime Detection (HMM + LSTM/Transformer)](#1-regime-detection-hmm--lstmtransformer)
+  - [2. Feature Engineering](#2-feature-engineering)
+  - [3. Signal Generation](#3-signal-generation)
+  - [4. Risk Management](#4-risk-management)
+  - [5. Backtesting](#5-backtesting)
+  - [6. Monte Carlo Simulation](#6-monte-carlo-simulation)
+  - [7. Statistical Validation](#7-statistical-validation)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Module Overview](#module-overview)
+- [Testing](#testing)
+- [Data](#data)
+- [Results & Outputs](#results--outputs)
+- [References](#references)
+- [License](#license)
 
 ## Overview
 
-This system provides a complete framework for:
-- **Market Regime Detection**: Hidden Markov Models (HMM) and LSTM-based regime classification
-- **Signal Generation**: Multi-factor signal generation with regime awareness
-- **Risk Management**: Advanced risk metrics and Monte Carlo simulation
-- **Portfolio Analysis**: Backtesting with dynamic position sizing and regime-aware strategies
-- **Visualization**: Comprehensive plotting and analysis tools
+This project implements a **hybrid market regime detection and risk management framework** for quantitative finance, with a focus on semiconductor equity markets. It combines **Hidden Markov Models (HMM)** and **deep learning (LSTM/Transformer)** to identify market regimes, generate regime-aware trading signals, manage risk dynamically, and perform robust backtesting and scenario analysis. The system is modular, extensible, and designed for both research and practical portfolio management.
 
-## Features
+## Key Features
 
-### Core Components
+- **Hybrid Regime Detection**: Combines HMM and LSTM/Transformer models for robust, multi-horizon regime identification with fallback and smoothing mechanisms.
+- **Regime-Aware Signal Generation**: Produces trading signals that adapt to detected market regimes.
+- **Dynamic Risk Management**: Implements regime-dependent risk metrics (VaR, ES, drawdown, volatility targeting, etc.) and adaptive position sizing.
+- **Comprehensive Backtesting**: Realistic backtest engine with walk-forward analysis, transaction costs, slippage, leverage, and risk controls.
+- **Monte Carlo Simulation**: Scenario analysis using regime-conditional and heavy-tailed distributions.
+- **Statistical Validation**: Extensive validation of model performance and risk metrics.
+- **Visualization**: Rich plotting and reporting of results, including regime transitions, risk, and performance.
+- **Modular Design**: Easily extensible for new assets, features, or models.
 
-- **Regime Detection**: 5-regime HMM with ensemble methods and adaptive retraining
-- **Deep Learning**: LSTM-based regime detection with TensorFlow
-- **Signal Generation**: Multi-factor signals with trend, momentum, mean reversion, and RSI
-- **Risk Management**: VaR, Expected Shortfall, drawdown analysis, and stress testing
-- **Monte Carlo Simulation**: 50,000+ simulations with GARCH volatility forecasting
-- **Backtesting**: Walk-forward analysis with regime-aware position sizing
-- **Data Management**: Yahoo Finance integration with caching and macro indicators
+## Architecture
 
-### Advanced Features
+```
+DataLoader/PortfolioConfig
+        ↓
+MarketRegimeDetector (HMM + LSTM/Transformer)
+        ↓
+SignalGenerator (regime-aware signals)
+        ↓
+RiskManager (regime-dependent risk, position sizing)
+        ↓
+BacktestEngine (realistic backtesting)
+        ↓
+MonteCarlo (scenario analysis)
+        ↓
+Visualization/Reporting
+```
 
-- **Adaptive Retraining**: Quarterly regime model updates with walk-forward validation
-- **Dynamic Position Sizing**: Confidence-based position sizing with volatility targeting
-- **Ensemble Methods**: Multiple regime detection models with confidence blending
-- **Real-time Analysis**: Live regime tracking with transition alerts
-- **Risk Controls**: Stop-loss, take-profit, and maximum drawdown limits
-- **Performance Monitoring**: Comprehensive metrics and visualization
+- **src/data.py**: Data loading, preprocessing, and feature engineering (Yahoo Finance, macro data, caching).
+- **src/regime.py**: Regime detection (HMM, LSTM, smoothing, Bayesian model averaging).
+- **src/deep_learning.py**: LSTM/Transformer regime models (TensorFlow, attention, regularization).
+- **src/signals.py**: Regime-aware signal generation (momentum, normalization, diagnostics).
+- **src/risk.py**: Risk management (VaR, ES, drawdown, volatility targeting, regime-aware limits).
+- **src/backtest.py**: Backtesting engine (walk-forward, constraints, risk triggers).
+- **src/monte_carlo.py**: Monte Carlo simulation (normal/t/regime-conditional, multi-asset, confidence intervals).
+- **src/visualization.py**: Portfolio and regime visualization.
+- **src/statistical_validation.py**: Statistical validation and diagnostics.
+
+## Technical Details
+
+### 1. Regime Detection (HMM + LSTM/Transformer)
+- **Hidden Markov Model (HMM):**
+  - Detects discrete market regimes (e.g., Low, Medium, High Volatility) using rolling windows of engineered features.
+  - Parameters: `n_regimes`, `window_size`, `min_regime_size`, `smoothing_window`, `features` (returns, volatility, momentum, skewness, kurtosis, etc.).
+  - Smoothing: Mode filter over regime sequence to reduce spurious transitions.
+  - Transition matrix: Estimated via maximum likelihood, used for regime persistence and transition alerts.
+- **LSTM/Transformer Deep Learning:**
+  - LSTM model with configurable layers, attention, bidirectionality, batch normalization, dropout, and residual connections.
+  - Parameters: `sequence_length`, `hidden_dims`, `epochs`, `learning_rate`, `dropout_rate`, `early_stopping_patience`, `learning_rate_schedule` (cosine annealing), etc.
+  - Trained to predict regime labels from engineered features, optionally using HMM output as targets.
+- **Bayesian Model Averaging:**
+  - Combines HMM and LSTM regime probabilities using entropy- or evidence-based weights:
+    - \( P_{BMA}(y|x) = w_{HMM} P_{HMM}(y|x) + w_{LSTM} P_{LSTM}(y|x) \)
+  - Weights adapt based on model confidence (entropy/log-evidence).
+- **Real-time/Online Options:**
+  - Alert thresholds, minimum confidence, update frequency, and regime history tracking for live applications.
+
+### 2. Feature Engineering
+- **Core Features:**
+  - Returns (raw, log), rolling and EWMA volatility, realized volatility, momentum (various windows), moving averages (fast/slow), MACD, RSI (14/30), Bollinger position, Williams %R, on-balance volume, skewness, kurtosis, price position, and more.
+- **Macro Features:**
+  - VIX level/change, yield curve (TNX, TYX), term structure slope, dollar strength (DXY), macro regime indicators.
+- **Semiconductor-Specific Features:**
+  - Semiconductor PMI, memory vs. logic spread, equipment vs. design ratio.
+- **Normalization:**
+  - Optional z-score normalization per feature.
+- **Missing Data Handling:**
+  - Forward/backward fill, then zero-imputation for robustness.
+
+### 3. Signal Generation
+- **Momentum-based Signals:**
+  - Short-term (3-day) and medium-term (10-day) momentum.
+  - Moving average crossover (fast/slow), price position relative to recent high.
+  - Combined using weighted sum and nonlinearity (tanh), clipped to [-1, 1].
+- **Regime Awareness:**
+  - Signals can be modulated or filtered based on detected regime (e.g., more aggressive in low-vol, defensive in high-vol).
+- **Diagnostics:**
+  - Signal statistics (mean, std, range, nonzero count), forward correlation with returns, and red-flag detection for weak or sparse signals.
+
+#### Recent Changes to Signal Logic
+- **Regime-Specific Feature Weights:** Signals now use regime-specific feature weights learned via Ridge regression, adapting the signal formula to each detected regime.
+- **Dynamic Signal Formulation:**
+  - In "High Vol" regimes, signals emphasize mean-reversion (RSI, Williams %R).
+  - In "Low Vol" regimes, signals emphasize momentum.
+  - In "Medium Vol" regimes, signals blend both approaches.
+- **Soft Thresholding:** Weak signals are softly thresholded, retaining some edge for low-signal environments.
+- **Flexible Scaling:** Signal scaling can be set to `tanh` or `clip` (see config), with a tunable scaling factor (`scaler_k`).
+- **Volatility Normalization:** Optionally normalize signals by realized volatility (configurable).
+- **Diagnostics:** Extensive diagnostics and debug output for signal quality, feature coverage, and regime adjustment.
+- **Configurable via `main.py` and YAML:** All signal logic options (regime use, scaling, normalization, etc.) are exposed in the pipeline and config.
+
+### 4. Risk Management
+- **Risk Metrics:**
+  - Annualized volatility, Value at Risk (VaR, historical/parametric/Monte Carlo), Expected Shortfall (ES), Sharpe/Sortino/Calmar/Omega ratios, max drawdown, rolling volatility, tail ratio, regime-dependent risk.
+- **Dynamic Position Sizing:**
+  - Proportional, fixed, regime-confidence, dynamic (volatility-adjusted), or custom (e.g., risk parity) sizing.
+  - Constraints: leverage, max position size, min trade size, short selling toggle.
+- **Risk Controls:**
+  - Stop-loss, take-profit, max drawdown, custom risk management hooks (e.g., consecutive losses, extreme daily loss).
+- **Stress Testing:**
+  - Scenario analysis (e.g., 2008 crisis, COVID crash), worst month/quarter, recovery time, max consecutive loss.
+- **Regime-Dependent Correlation:**
+  - Correlation matrices and risk decomposition by regime.
+
+### 5. Backtesting
+- **Walk-Forward Analysis:**
+  - Rolling window and step for out-of-sample validation.
+- **Transaction Costs:**
+  - Proportional, fixed, and slippage costs per trade.
+- **Performance Metrics:**
+  - Total/annualized return, volatility, Sharpe, max drawdown, win rate, turnover, Calmar ratio, and more.
+- **Diagnostics:**
+  - Position, trade, and equity curve tracking; confidence metrics for regime-based sizing.
+
+### 6. Monte Carlo Simulation
+- **Simulation Engine:**
+  - Supports normal, t-distribution, and regime-conditional return generation.
+  - GARCH(1,1) volatility forecasting per asset.
+  - Cholesky decomposition for correlated asset paths.
+- **Metrics:**
+  - Expected/annualized return, volatility, Sharpe, VaR/CVaR, max drawdown, information/sortino ratios, success rate.
+  - Confidence intervals for portfolio value at multiple quantiles.
+- **Validation:**
+  - Checks for positive values, correlation preservation, volatility alignment, and return reasonability.
+- **Reporting:**
+  - Plots of simulation paths, distribution, and risk metrics; summary statistics and JSON/CSV export.
+
+### 7. Statistical Validation
+- **Accuracy Testing:**
+  - Binomial test for regime detection accuracy vs. random chance.
+- **Performance Testing:**
+  - Paired t-test and bootstrap confidence intervals for model outperformance (e.g., vs. baseline or HMM-only).
+- **Cross-Validation:**
+  - TimeSeriesSplit for regime stability and persistence.
+- **Bayesian Model Averaging:**
+  - Weighted combination of model probabilities based on entropy or log-evidence.
+- **Extreme Value Theory:**
+  - Tail index estimation for risk of rare events.
 
 ## Installation
 
-### Prerequisites
-
-- Python 3.8+
-- pip
-
-### Dependencies
+1. **Clone the repository**
 
 ```bash
+git clone <repo_url>
+cd researchlucas
+```
+
+2. **Install dependencies** (Python 3.10+ recommended)
+
+```bash
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Key Dependencies
+3. **(Optional) Set up environment variables**
 
-- **Data Processing**: numpy, pandas, scipy
-- **Finance**: yfinance, pandas-datareader, alpaca-py
-- **Machine Learning**: scikit-learn, hmmlearn, tensorflow
-- **Statistics**: statsmodels, arch
-- **Visualization**: matplotlib, seaborn, plotly
-- **Development**: pytest, black, flake8
+- If using API keys or custom data sources, create a `.env` file in the root directory.
 
 ## Quick Start
 
-### Basic Usage
+Get up and running with the default pipeline and demo data in just a few steps:
 
-```python
-from main import AnalysisPipeline, AnalysisConfig
-
-# Configure analysis
-config = AnalysisConfig(
-    tickers=["AAPL", "MSFT", "GOOGL"],
-    start_date="2020-01-01",
-    end_date="2023-12-31",
-    n_regimes=5,
-    use_adaptive_retraining=True
-)
-
-# Run complete analysis
-pipeline = AnalysisPipeline(config)
-pipeline.run()
+```bash
+git clone <repo_url>
+cd researchlucas
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python main.py
 ```
 
-### Demo Notebook
-
-Run the interactive demo:
+- This will run the full pipeline using the default configuration and cached demo datasets.
+- Results and plots will be saved in the `results/` and `plots/` directories.
+- For a step-by-step interactive demo, launch:
 
 ```bash
 jupyter notebook ProjectDemo.ipynb
 ```
 
-## Project Structure
+## Usage
 
-```
-researchlucas/
-├── main.py                          # Main analysis pipeline
-├── src/
-│   ├── data.py                     # Data loading and preprocessing
-│   ├── regime.py                   # Market regime detection
-│   ├── deep_learning.py            # LSTM-based regime detection
-│   ├── signals.py                  # Signal generation
-│   ├── risk.py                     # Risk management
-│   ├── monte_carlo.py              # Monte Carlo simulation
-│   ├── backtest.py                 # Backtesting engine
-│   ├── visualization.py            # Plotting and visualization
-│   └── portfolio.py                # Portfolio management
-├── tests/
-│   ├── unit/                       # Unit tests
-│   └── integration/                # Integration tests
-├── data_cache/                     # Cached market data
-├── plots/                          # Generated plots and reports
-├── requirements.txt                 # Python dependencies
-└── ProjectDemo.ipynb               # Interactive demo
+### 1. Run the Main Pipeline
+
+```bash
+python main.py
 ```
 
-## Core Modules
+This will execute the full pipeline:
+- Data loading and preprocessing
+- Regime detection (HMM + LSTM/Transformer)
+- Signal generation
+- Risk analysis
+- Backtesting
+- Monte Carlo simulation
+- Visualization and reporting (results saved in `results/` and `plots/`)
 
-### Data Management (`src/data.py`)
+### 2. Jupyter Notebook Demo
 
-- **PortfolioConfig**: Configuration for data loading
-- **DataLoader**: Yahoo Finance integration with caching
-- Features: OHLCV data, macro indicators (VIX, yield curves), resampling
+A demo notebook is provided:
 
-### Regime Detection (`src/regime.py`)
+```bash
+jupyter notebook ProjectDemo.ipynb
+```
 
-- **MarketRegimeDetector**: HMM-based regime detection
-- **AdaptiveRegimeDetector**: Adaptive retraining with walk-forward analysis
-- **RegimeConfig**: Configuration for regime detection parameters
-- Features: 5-regime classification, ensemble methods, confidence scoring
+This notebook demonstrates step-by-step usage, including custom portfolio configuration, regime detection, and visualization.
 
-### Deep Learning (`src/deep_learning.py`)
+### 3. Customization
 
-- **LSTMRegimeDetector**: LSTM-based regime classification
-- **DeepLearningConfig**: Configuration for neural network parameters
-- Features: Sequence modeling, early stopping, probability predictions
-
-### Signal Generation (`src/signals.py`)
-
-- **SignalGenerator**: Multi-factor signal generation
-- Features: Trend, momentum, mean reversion, RSI, MACD, regime filtering
-
-### Risk Management (`src/risk.py`)
-
-- **RiskManager**: Comprehensive risk analysis
-- **RiskConfig**: Risk management configuration
-- Features: VaR, Expected Shortfall, drawdown analysis, stress testing
-
-### Monte Carlo (`src/monte_carlo.py`)
-
-- **MonteCarlo**: Advanced simulation engine
-- **SimConfig**: Simulation configuration
-- Features: 50,000+ simulations, GARCH volatility, Student's t-distribution
-
-### Backtesting (`src/backtest.py`)
-
-- **BacktestEngine**: Comprehensive backtesting framework
-- Features: Walk-forward analysis, regime-aware sizing, risk controls
-
-### Visualization (`src/visualization.py`)
-
-- **PortfolioVisualizer**: Advanced plotting capabilities
-- Features: Regime overlays, Monte Carlo paths, risk metrics dashboard
+- **Portfolio**: Edit tickers, weights, and dates in `main.py` or the notebook.
+- **Model Parameters**: Adjust regime, LSTM, and risk configs in `main.py` or via config classes.
+- **Data**: Place custom CSVs in `data_cache/` or use live download.
 
 ## Configuration
 
-### Analysis Configuration
+- **config.yml**: (Optional) For advanced configuration.
+- **.env**: (Optional) For API keys or environment variables.
+- **PortfolioConfig**: Tickers, weights, dates, macro indicators.
+- **RegimeConfig**: Number of regimes, window size, features, smoothing, deep learning options.
+- **RiskConfig**: Risk limits, VaR/ES methods, stop-loss, take-profit, volatility target.
+- **SimConfig**: Monte Carlo simulation parameters.
 
-```python
-config = AnalysisConfig(
-    # Data settings
-    tickers=["AAPL", "MSFT", "GOOGL"],
-    start_date="2020-01-01",
-    end_date="2023-12-31",
-    
-    # Regime detection
-    n_regimes=5,
-    window_size=10,
-    use_adaptive_retraining=True,
-    
-    # Risk management
-    stop_loss=0.02,
-    take_profit=0.30,
-    max_drawdown=0.10,
-    
-    # Position sizing
-    use_dynamic_position_sizing=True,
-    base_position_size=0.10,
-    confidence_threshold=0.6
-)
-```
+## Module Overview
 
-### Regime Detection Configuration
-
-```python
-regime_config = RegimeConfig(
-    n_regimes=5,
-    window_size=10,
-    features=["returns", "volatility", "momentum"],
-    ensemble_method="confidence_blend",
-    use_deep_learning=True
-)
-```
-
-## Usage Examples
-
-### Market Regime Detection
-
-```python
-from src.regime import MarketRegimeDetector, RegimeConfig
-
-config = RegimeConfig(n_regimes=5, window_size=10)
-detector = MarketRegimeDetector(config)
-regimes = detector.fit_predict(returns)
-```
-
-### Signal Generation
-
-```python
-from src.signals import SignalGenerator
-
-generator = SignalGenerator(use_regime=True, regime_detector=detector)
-signals = generator.generate_signals(market_data)
-```
-
-### Risk Analysis
-
-```python
-from src.risk import RiskManager, RiskConfig
-
-risk_config = RiskConfig(confidence_level=0.95)
-risk_manager = RiskManager(risk_config)
-metrics = risk_manager.calculate_metrics(returns)
-```
-
-### Monte Carlo Simulation
-
-```python
-from src.monte_carlo import MonteCarlo, SimConfig
-
-sim_config = SimConfig(n_sims=50000, n_days=252)
-mc = MonteCarlo(sim_config)
-results = mc.simulate(market_data)
-```
-
-### Backtesting
-
-```python
-from src.backtest import BacktestEngine
-
-engine = BacktestEngine(
-    returns=returns,
-    signals=signals,
-    regime_confidence=regime_confidence
-)
-results = engine.run()
-```
-
-## Advanced Features
-
-### Adaptive Retraining
-
-The system supports quarterly retraining of regime models:
-
-```python
-config = AnalysisConfig(
-    use_adaptive_retraining=True,
-    retrain_window=252,  # 1 year initial training
-    retrain_freq=63      # Quarterly retraining
-)
-```
-
-### Dynamic Position Sizing
-
-Confidence-based position sizing with volatility targeting:
-
-```python
-config = AnalysisConfig(
-    use_dynamic_position_sizing=True,
-    base_position_size=0.10,
-    confidence_threshold=0.6,
-    vol_target=0.12
-)
-```
-
-### Ensemble Methods
-
-Multiple regime detection models with confidence blending:
-
-```python
-config = RegimeConfig(
-    ensemble_method="confidence_blend",
-    use_deep_learning=True
-)
-```
+- **src/data.py**: `DataLoader`, `PortfolioConfig` — Loads and preprocesses market and macro data, supports caching and normalization.
+- **src/regime.py**: `MarketRegimeDetector`, `RegimeConfig` — Detects regimes using HMM and LSTM, supports smoothing, Bayesian averaging, and real-time tracking.
+- **src/deep_learning.py**: `LSTMRegimeDetector`, `DeepLearningConfig` — Deep learning regime models with attention, regularization, and early stopping.
+- **src/signals.py**: `SignalGenerator` — Generates regime-aware trading signals, supports diagnostics.
+- **src/risk.py**: `RiskManager`, `RiskConfig` — Calculates risk metrics, manages position sizing, and enforces risk controls.
+- **src/backtest.py**: `BacktestEngine` — Realistic backtesting with walk-forward, transaction costs, leverage, and risk triggers.
+- **src/monte_carlo.py**: `MonteCarlo`, `SimConfig` — Monte Carlo scenario analysis with regime-conditional and heavy-tailed distributions.
+- **src/visualization.py**: `PortfolioVisualizer` — Plots performance, regimes, risk, and simulation results.
+- **src/statistical_validation.py**: `StatisticalValidator` — Validates model and risk metrics.
 
 ## Testing
 
-### Unit Tests
+- **Unit tests**: Located in `tests/unit/` (e.g., `test_data.py`).
+- **Integration tests**: Located in `tests/integration/` (e.g., `test_workflow.py`).
+- **Run all tests**:
 
 ```bash
-pytest tests/unit/
+pytest
 ```
 
-### Integration Tests
+- **Test coverage**:
 
 ```bash
-pytest tests/integration/
+pytest --cov=src
 ```
 
-### Test Coverage
+## Data
 
-```bash
-pytest --cov=src tests/
-```
+- **Live download**: Uses Yahoo Finance via `yfinance`.
+- **Cached data**: Place CSVs in `data_cache/` for reproducibility.
+- **Supported assets**: Equities, ETFs, macro indicators (VIX, ^TNX, ^TYX, etc.).
 
-## Output and Reports
+## Results & Outputs
 
-The system generates comprehensive outputs:
+- **Results**: Saved in `results/` and `output_conservative/`.
+- **Plots**: Saved in `plots/` (e.g., equity curves, regime transitions, risk metrics).
+- **Logs**: Written to `regime_detection.log`.
 
-- **Plots**: Regime analysis, Monte Carlo paths, risk metrics
-- **Reports**: Performance metrics, regime statistics, backtest results
-- **Data**: Cached market data, regime classifications, signal data
+## References
 
-### Generated Files
-
-- `plots/`: Visualization outputs
-- `data_cache/`: Cached market data
-- `*.txt`: Analysis reports
-- `*.csv`: Grid search results
-
-## Performance Optimization
-
-- **Caching**: Market data caching for faster repeated analysis
-- **Parallel Processing**: Multi-core regime detection
-- **Memory Management**: Efficient data structures and cleanup
-- **Early Stopping**: Neural network training optimization
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
+- Hamilton, J.D. (1989). A New Approach to the Economic Analysis of Nonstationary Time Series and the Business Cycle. *Econometrica*.
+- Fischer, T., & Krauss, C. (2018). Deep learning with long short-term memory networks for financial market predictions. *European Journal of Operational Research*.
+- McNeil, A.J., Frey, R., & Embrechts, P. (2015). *Quantitative Risk Management*.
+- See `latex/Hybrid Regime Detection in Semiconductor Markets_ A Machine Learning Approach to Dynamic Risk Management/` for full academic writeup and methodology.
 
 ## License
 
-This project is for research and educational purposes.
+This project is for research and educational purposes. For commercial or production use, please contact the author.
 
-## Acknowledgments
-
-- Yahoo Finance for market data
-- Academic research on regime detection and portfolio optimization
-- Open-source quantitative finance community
-
-## Contact
-
-For questions or contributions, please refer to the project documentation and test suite.
-
+---

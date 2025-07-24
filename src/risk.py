@@ -1,14 +1,28 @@
 # src/risk.py
 import warnings
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any, Union, Sequence
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 from scipy.stats import norm
 
+import statsmodels.api as sm
+from typing import Sequence
+# For Bayesian and copula modeling
+try:
+    import pymc3 as pm
+except ImportError:
+    pm = None  # Optional, for Bayesian AR(1)
+try:
+    from copulas.multivariate import GaussianMultivariate, StudentMultivariate
+except ImportError:
+    GaussianMultivariate = StudentMultivariate = None
+
 from src.regime import MarketRegimeDetector, RegimeConfig
+from src.deep_learning import BayesianLSTMRegimeForecaster
+from sklearn.decomposition import PCA
 
 
 @dataclass
@@ -17,14 +31,14 @@ class RiskConfig:
 
     # Required parameters with defaults
     confidence_level: float = 0.95
-    max_drawdown_limit: float = 0.10  # Updated from 0.20 to 0.10 based on grid search results
+    max_drawdown_limit: float = 0.20  # Raised from 0.10 to 0.20 for less aggressive de-risking
     volatility_target: float = 0.15
     
     # Risk limits from grid search
     stop_loss: float = 0.02  # 2% stop-loss from best config
-    take_profit: float = 0.30  # 30% take-profit from best config
+    take_profit: float = 0.50  # 30% take-profit from best config
 
-    # Optional parameters with defaults
+    # Optional parameters with defaultsw
     var_calculation_method: str = (
         "historical"  # ['historical', 'parametric', 'monte_carlo']
     )
@@ -83,111 +97,37 @@ class RiskManager:
     ):
         self.config = config
         self.risk_free_rate = risk_free_rate
-        self.weights = weights
+        # FIX: Use config weights if provided, otherwise use parameter weights
+        self.weights = config.weights if config.weights is not None else weights
         self.regime_detector = MarketRegimeDetector(config.regime_config)
 
-    def calculate_metrics(self, returns) -> Dict:
-        """Enhanced risk metrics calculation"""
-        # Convert Series to DataFrame if necessary
-        if isinstance(returns, pd.Series):
-            returns = pd.DataFrame(returns, columns=["Portfolio"])
-
-        # Type validation
-        if not isinstance(returns, pd.DataFrame):
-            raise TypeError("Returns must be a pandas DataFrame or Series")
-
-        # DataFrame validation
-        if len(returns.columns) == 0:
-            raise ValueError("Returns DataFrame must have at least one column")
-        if len(returns.index) == 0:
-            raise ValueError("Returns DataFrame must have at least one row")
-
-        # Data quality validation
-        self._validate_returns(returns)
-
-        weights = (
-            self.config.weights
-            if self.config.weights is not None
-            else [1 / len(returns.columns)] * len(returns.columns)
-        )
-        portfolio_returns = returns.dot(weights)
-
-        # Basic metrics
-        metrics = {
-            "portfolio_volatility": self._calculate_volatility(portfolio_returns),
-            "var_95": self._calculate_var(portfolio_returns, 0.95),
-            "expected_shortfall_95": self._calculate_expected_shortfall(
-                portfolio_returns, 0.95
-            ),
-            "max_drawdown": self._calculate_max_drawdown(portfolio_returns),
-            "sharpe_ratio": self._calculate_sharpe_ratio(portfolio_returns),
-            "rolling_volatility": self._calculate_rolling_volatility(returns),
-            "correlation": returns.corr(),
-        }
-
-        # Add risk management metrics if enough data
-        if len(portfolio_returns) > 21:  # Need at least 21 days for ratios
-            metrics.update(
-                {
-                    "volatility_ratio": self._calculate_volatility_ratio(
-                        portfolio_returns
-                    ),
-                    "drawdown_ratio": self._calculate_drawdown_ratio(portfolio_returns),
-                    "risk_adjusted_position": self._calculate_risk_adjusted_position(
-                        portfolio_returns
-                    ),
-                    "stress_test": self._perform_stress_test(portfolio_returns),
-                }
-            )
-        else:
-            metrics.update(
-                {
-                    "volatility_ratio": 1.0,
-                    "drawdown_ratio": 0.0,
-                    "risk_adjusted_position": 1.0,
-                    "stress_test": {
-                        "worst_month": 0.0,
-                        "worst_quarter": 0.0,
-                        "recovery_time": 0.0,
-                        "max_consecutive_loss": 0,
-                    },
-                }
-            )
-
-        # Enhanced metrics
-        metrics.update(
-            {
-                "sortino_ratio": self._calculate_sortino_ratio(portfolio_returns),
-                "calmar_ratio": self._calculate_calmar_ratio(portfolio_returns),
-                "omega_ratio": self._calculate_omega_ratio(portfolio_returns),
-                "tail_ratio": self._calculate_tail_ratio(portfolio_returns),
-                "market_regime": self._detect_market_regime(portfolio_returns),
-                "risk_decomposition": (
-                    self._decompose_risk(returns) if len(returns.columns) > 1 else None
-                ),
-            }
-        )
-
-        # Update regime-specific metrics
-        regime_info = self._detect_market_regime(portfolio_returns)
-        regime_mask = regime_info["regime_mask"]  # Use the mask from regime_info
-
-        # Add regime-conditional metrics
-        metrics.update(
-            {
-                "market_regime": regime_info,
-                "regime_volatility": self._calculate_volatility(
-                    portfolio_returns[regime_mask]
-                ),
-                "regime_var": self._calculate_var(
-                    portfolio_returns[regime_mask], self.config.confidence_level
-                ),
-                "regime_es": self._calculate_expected_shortfall(
-                    portfolio_returns[regime_mask], self.config.confidence_level
-                ),
-            }
-        )
-
+    def calculate_metrics(self, returns: Union[pd.Series, pd.DataFrame], n_bootstraps: int = 0) -> Dict[str, Any]:
+        """Enhanced risk metrics calculation with optional bootstrapped CIs"""
+        # Robustly handle DataFrame/Series
+        if isinstance(returns, pd.DataFrame):
+            if returns.shape[1] == 1:
+                returns = returns.iloc[:, 0]
+            else:
+                returns = returns.mean(axis=1)
+        returns = returns.dropna()
+        # If all zeros, warn
+        if (returns != 0).sum() == 0:
+            print("⚠️  WARNING: All returns are zero! Metrics will be zero.")
+        # Calculate metrics
+        metrics = {}
+        metrics['mean_return'] = returns.mean()
+        metrics['std_return'] = returns.std()
+        metrics['portfolio_volatility'] = returns.std() * np.sqrt(252)
+        metrics['volatility'] = metrics['portfolio_volatility']  # Ensure alias for summary compatibility
+        metrics['var_95'] = np.percentile(returns.dropna(), 5) if not returns.empty else 0
+        metrics['expected_shortfall_95'] = returns[returns <= metrics['var_95']].mean() if not returns.empty else 0
+        metrics['max_drawdown'] = self._calculate_max_drawdown(returns)
+        metrics['sharpe_ratio'] = (returns.mean() / (returns.std() + 1e-8)) * np.sqrt(252) if returns.std() > 0 else 0
+        # Bootstrapped CIs
+        if n_bootstraps > 0:
+            metrics['sharpe_ci'] = self.bootstrap_metric(lambda r: (r.mean() / (r.std() + 1e-8)) * np.sqrt(252), returns, n=n_bootstraps)
+            metrics['var_95_ci'] = self.bootstrap_metric(lambda r: np.percentile(r.dropna(), 5), returns, n=n_bootstraps)
+            metrics['max_drawdown_ci'] = self.bootstrap_metric(self._calculate_max_drawdown, returns, n=n_bootstraps)
         return metrics
 
     def _calculate_sharpe_ratio(self, returns: pd.Series) -> float:
@@ -231,25 +171,11 @@ class RiskManager:
         drawdowns = cum_returns / rolling_max - 1
         return drawdowns.min()
 
-    def _calculate_rolling_volatility(self, returns: pd.DataFrame) -> pd.DataFrame:
-        """Calculate rolling volatility for multiple windows"""
-        rolling_vol = pd.DataFrame(index=returns.index)
-
-        # Calculate portfolio returns first
-        portfolio_returns = (
-            returns.dot(self.weights)
-            if self.weights is not None
-            else returns.mean(axis=1)
-        )
-
-        # Calculate rolling volatility for different windows
-        rolling_vol.loc[:, "21d"] = portfolio_returns.rolling(
-            window=21
-        ).std() * np.sqrt(252)
-        rolling_vol.loc[:, "63d"] = portfolio_returns.rolling(
-            window=63
-        ).std() * np.sqrt(252)
-
+    def _calculate_rolling_volatility(self, portfolio_returns: pd.Series) -> pd.DataFrame:
+        """Calculate rolling volatility for portfolio returns (Series input only)"""
+        rolling_vol = pd.DataFrame(index=portfolio_returns.index)
+        rolling_vol.loc[:, "21d"] = portfolio_returns.rolling(window=21).std() * np.sqrt(252)
+        rolling_vol.loc[:, "63d"] = portfolio_returns.rolling(window=63).std() * np.sqrt(252)
         return rolling_vol
 
     def _calculate_volatility_ratio(self, returns: pd.DataFrame) -> float:
@@ -275,18 +201,18 @@ class RiskManager:
         return (cum_returns.iloc[-1] / peak.iloc[-1]) - 1
 
     def _calculate_risk_adjusted_position(self, returns: pd.Series) -> float:
-        """Calculate suggested position size based on risk metrics"""
+        """Calculate suggested position size based on risk metrics (flattened penalty)"""
         vol_ratio = self._calculate_volatility_ratio(returns)
         dd_ratio = self._calculate_drawdown_ratio(returns)
 
-        # More aggressive position scaling
-        position_scale = min(
-            1.0,
-            1.0 / (vol_ratio**1.5) if vol_ratio > 1.1 else 1.0,
-            1.0 / (dd_ratio**1.5) if dd_ratio > 0.6 else 1.0,
-        )
-
-        return max(0.2, min(position_scale, 1.0))  # Ensure minimum 20% position
+        # Flattened penalty: use exponent 1.0 instead of 1.5, and log-based penalty for vol_ratio
+        penalty = np.log1p(vol_ratio - 1) if vol_ratio > 1 else 0
+        position_scale = 1.0 - penalty
+        # Drawdown penalty (linear, not exponential)
+        if dd_ratio > 0.6:
+            position_scale *= max(0.5, 1.0 - (dd_ratio - 0.6))
+        # Ensure minimum 20% position
+        return max(0.2, min(position_scale, 1.0))
 
     def _calculate_max_consecutive_loss(self, returns: pd.Series) -> int:
         """Calculate maximum number of consecutive losing days"""
@@ -362,17 +288,131 @@ class RiskManager:
         right_tail = np.abs(np.percentile(returns, 95))
         return right_tail / left_tail if left_tail != 0 else np.inf
 
-    def _detect_market_regime(self, returns: pd.DataFrame) -> Dict[str, float]:
+    def _calculate_monte_carlo_var(self, returns: pd.Series, confidence_level: float) -> float:
+        """
+        Monte Carlo VaR calculation using bootstrap simulation
+        Args:
+            returns: Historical return series
+            confidence_level: Confidence level for VaR calculation
+        Returns:
+            Monte Carlo VaR estimate
+        """
+        n_simulations = 10000
+        simulated_returns = np.random.choice(
+            returns.dropna().values,
+            size=(n_simulations, len(returns.dropna())),
+            replace=True
+        )
+        portfolio_returns = np.mean(simulated_returns, axis=1)
+        var = np.percentile(portfolio_returns, (1 - confidence_level) * 100)
+        return var
+
+    def _calculate_risk_score(self, returns: pd.Series) -> float:
+        """
+        Calculate overall risk score (0-100 scale)
+        Less punitive: flatten scoring, regime-aware (optional)
+        """
+        vol = self._calculate_volatility(returns)
+        max_dd = abs(self._calculate_max_drawdown(returns))
+        var_95 = abs(self._calculate_var(returns, 0.95))
+        # Flattened scores, less aggressive
+        vol_score = min(vol / 0.30, 1.0) * 30
+        dd_score = min(max_dd / 0.30, 1.0) * 30
+        var_score = min(var_95 / 0.10, 1.0) * 20
+        total_score = vol_score + dd_score + var_score
+        return min(total_score, 80.0)  # Cap at 80, not 100
+
+    def generate_risk_report(self, returns: pd.Series, n_bootstraps: int = 0) -> Dict[str, Any]:
+        """
+        Generate comprehensive risk report with assessment and recommendations, with optional bootstrapped CIs.
+        Args:
+            returns: Portfolio return series
+            n_bootstraps: number of bootstrap samples for CIs
+        Returns:
+            Complete risk analysis report
+        """
+        # Robustly handle DataFrame/Series
+        if isinstance(returns, pd.DataFrame):
+            if returns.shape[1] == 1:
+                returns = returns.iloc[:, 0]
+            else:
+                returns = returns.mean(axis=1)
+        # Print debug info
+        print("\n=== RISK INPUT RETURNS SUMMARY ===")
+        print(returns.describe())
+        print("Nonzero count:", (returns != 0).sum())
+        print("NaN count:", returns.isna().sum())
+        if (returns != 0).sum() == 0 or returns.isna().all():
+            print("⚠️  WARNING: All returns are zero or NaN! Risk metrics will be zero.")
+        metrics = self.calculate_metrics(returns, n_bootstraps=n_bootstraps)
+        risk_score = self._calculate_risk_score(returns)
+        metrics['risk_score'] = risk_score
+        # Regime-aware position recommendation
+        min_position = 0.8
+        if risk_score < 30:
+            risk_level = "Low"
+            position_recommendation = 1.0
+            key_risks = ["Market risk within acceptable bounds"]
+        elif risk_score < 60:
+            risk_level = "Medium"
+            position_recommendation = 0.9
+            key_risks = ["Moderate volatility", "Some drawdown risk"]
+        else:
+            risk_level = "High"
+            position_recommendation = 0.8
+            key_risks = ["High volatility", "Significant drawdown risk", "Tail risk concerns"]
+        # Enforce minimum position recommendation
+        position_recommendation = max(position_recommendation, min_position)
+        # Regime feedback loop
+        regime_info = self._detect_market_regime(returns)
+        current_regime = regime_info.get('current_regime', 'Unknown')
+        if current_regime == "High Vol":
+            position_recommendation *= 0.8
+        elif current_regime == "Low Vol":
+            position_recommendation *= 1.2
+        position_recommendation = min(max(position_recommendation, min_position), 1.2)
+        recommendations = []
+        if metrics['max_drawdown'] < -0.15:
+            recommendations.append("Consider reducing position sizes due to high drawdown")
+        if metrics['sharpe_ratio'] < 0.5:
+            recommendations.append("Review signal quality - low risk-adjusted returns")
+        if metrics.get('portfolio_volatility', 0) > 0.30:
+            recommendations.append("High volatility detected - consider volatility targeting")
+        if risk_score > 70:
+            recommendations.append("Overall risk is elevated - implement stricter risk controls")
+        if current_regime == "High Vol":
+            recommendations.append("Currently in high volatility regime - reduce exposure")
+        elif current_regime == "Low Vol":
+            recommendations.append("Low volatility environment - potential for higher allocation")
+        return {
+            'risk_metrics': metrics,
+            'risk_assessment': {
+                'risk_level': risk_level,
+                'risk_score': risk_score,
+                'position_recommendation': position_recommendation,
+                'key_risks': key_risks,
+                'current_regime': current_regime
+            },
+            'recommendations': recommendations,
+            'summary': f"Risk Level: {risk_level} ({risk_score:.1f}/80)"
+        }
+
+    def _detect_market_regime(self, returns: Union[pd.Series, pd.DataFrame]) -> Dict[str, Any]:
         """Enhanced market regime detection using HMM"""
-        # Convert DataFrame to Series if necessary
+        # Ensure returns is a Series for LSTM regime detection
         if isinstance(returns, pd.DataFrame):
             if len(returns.columns) == 1:
-                returns = returns.iloc[:, 0]  # Get the first column as Series
+                returns_series = returns.iloc[:, 0]
+            elif self.config.weights is not None:
+                returns_series = returns.dot(self.config.weights)
             else:
-                returns = returns.mean(axis=1)  # Take mean across columns
+                returns_series = returns.mean(axis=1)
+        else:
+            returns_series = returns
 
-        # Get regime predictions
-        regimes = self.regime_detector.fit_predict(returns)
+        from src.features import calculate_enhanced_features
+        features = calculate_enhanced_features(returns_series)
+        regimes = self.regime_detector.fit_predict(features, returns_series)
 
         # Get regime statistics
         regime_stats = self.regime_detector.get_regime_stats(returns, regimes)
@@ -384,17 +424,15 @@ class RiskManager:
         transitions = self.regime_detector.get_transition_matrix()
 
         current_regime = regimes.iloc[-1]
-
-        # Create boolean mask for the current regime
         regime_mask = regimes == current_regime
 
         return {
             "current_regime": current_regime,
-            "regime_mask": regime_mask,  # Add mask to the output
+            "regime_mask": regime_mask,
             "regime_stats": regime_stats,
             "model_validation": validation,
-            "transition_probs": transitions.to_dict(),
-            "confidence": validation["regime_persistence"],
+            "transition_probs": transitions.to_dict() if hasattr(transitions, 'to_dict') else transitions,
+            "confidence": validation.get("regime_persistence", None),
         }
 
     def _decompose_risk(self, returns: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -452,28 +490,238 @@ class RiskManager:
             ),
         }
 
-    def _extreme_value_analysis(self, returns: pd.Series) -> Dict:
+    def _extreme_value_analysis(self, returns: pd.Series) -> Dict[str, Any]:
         """Perform Extreme Value Theory analysis"""
         threshold = np.percentile(returns, 5)  # 5th percentile as threshold
         exceedances = returns[returns < threshold]
-
-        # Fit Generalized Pareto Distribution
         from scipy.stats import genpareto
-
-        shape, loc, scale = genpareto.fit(abs(exceedances))
-
-        return {
-            "tail_index": shape,
-            "scale": scale,
-            "threshold": threshold,
-            "exceedance_rate": len(exceedances) / len(returns),
-        }
+        try:
+            shape, loc, scale = genpareto.fit(abs(exceedances))
+            return {
+                "tail_index": shape,
+                "scale": scale,
+                "threshold": threshold,
+                "exceedance_rate": len(exceedances) / len(returns),
+            }
+        except Exception as e:
+            return {"error": str(e)}
 
     def _calculate_dynamic_correlation(self, returns: pd.DataFrame) -> pd.DataFrame:
-        """Calculate regime-dependent correlation matrix"""
-        regime = self._detect_market_regime(returns)
-        window = 21 if regime["volatility_regime"] == "high" else 63
+        """
+        Calculate regime-dependent correlation matrix
+        Args:
+            returns: Multi-asset return DataFrame
+        Returns:
+            Correlation matrix adjusted for current market regime
+        """
+        if len(returns.columns) == 1:
+            return pd.DataFrame([[1.0]], index=returns.columns, columns=returns.columns)
+        try:
+            portfolio_returns = returns.mean(axis=1)
+            regime_info = self._detect_market_regime(portfolio_returns)
+            current_regime = regime_info.get("current_regime", None)
+            regime_mask = regime_info.get("regime_mask", pd.Series(True, index=returns.index))
+            regime_returns = returns[regime_mask]
+            if len(regime_returns) > 21:
+                regime_corr = regime_returns.corr()
+            else:
+                regime_corr = returns.corr()
+            regime_corr = regime_corr.fillna(0)
+            np.fill_diagonal(regime_corr.values, 1.0)
+            return regime_corr
+        except Exception as e:
+            print(f"Warning: Dynamic correlation calculation failed: {e}")
+            return returns.corr()
 
-        # Calculate pairwise correlations
-        corr_matrix = returns.corr()
-        return corr_matrix
+    def forecast_risk_bayesian(self, returns: pd.Series, macro_features: Optional[pd.DataFrame] = None, method: str = 'ar1', forecast_horizon: int = 1, target: Optional[np.ndarray] = None) -> Dict[str, Any]:
+        """
+        Bayesian risk forecasting: AR(1) or Bayesian LSTM for forward volatility/VaR prediction.
+        Args:
+            returns: pd.Series of returns
+            macro_features: Optional DataFrame of macro variables
+            method: 'ar1' or 'lstm'
+            forecast_horizon: periods ahead to forecast (for AR1)
+            target: np.ndarray of target risk metric (for LSTM training)
+        Returns:
+            Dict with predictive mean, std, and intervals for volatility/VaR
+        Usage:
+            - For AR(1): method='ar1' (default)
+            - For Bayesian LSTM: method='lstm', provide target (e.g., next-period volatility)
+        """
+        if method == 'ar1':
+            # Bayesian AR(1) using statsmodels (non-Bayesian fallback)
+            ar1 = sm.tsa.ARIMA(returns, order=(1,0,0)).fit()
+            forecast = ar1.get_forecast(steps=forecast_horizon)
+            pred_mean = forecast.predicted_mean.values[-1]
+            pred_std = np.sqrt(forecast.var_pred_mean.values[-1])
+            return {'predicted_mean': pred_mean, 'predicted_std': pred_std}
+        elif method == 'lstm':
+            # Bayesian LSTM for risk forecasting
+            if target is None:
+                raise ValueError('For Bayesian LSTM, you must provide a target risk metric (e.g., next-period volatility)')
+            bayes_lstm = BayesianLSTMRegimeForecaster(self.config)
+            bayes_lstm.fit(returns, target)
+            pred = bayes_lstm.predict_latest(returns, n_samples=100)
+            return pred
+        else:
+            raise ValueError('Unknown method for Bayesian risk forecasting')
+
+    def get_regime_path_features(self, returns: pd.Series) -> Dict[str, Any]:
+        """
+        Compute cross-regime path dependency features: transition frequency, time since last regime change, cumulative drawdown since last regime, regime momentum.
+        Returns:
+            Dict of path-dependent regime features
+        """
+        regime_info = self._detect_market_regime(returns)
+        regimes = self.regime_detector.fit_predict(returns)
+        transitions = regimes != regimes.shift(1)
+        transition_count = transitions.sum()
+        time_since_last = (len(regimes) - np.where(transitions)[0][-1]) if transition_count > 0 else len(regimes)
+        current_regime = regimes.iloc[-1]
+        regime_duration = (regimes == current_regime)[::-1].cumsum().iloc[0]
+        # Cumulative drawdown since last regime change
+        last_change_idx = np.where(transitions)[0][-1] if transition_count > 0 else 0
+        drawdown_since_last = self._calculate_max_drawdown(returns.iloc[last_change_idx:])
+        return {
+            'transition_count': int(transition_count),
+            'time_since_last_transition': int(time_since_last),
+            'current_regime_duration': int(regime_duration),
+            'drawdown_since_last_regime': float(drawdown_since_last),
+        }
+
+    def calculate_tail_dependence_copula(self, returns: pd.DataFrame, regime_labels: Optional[Sequence] = None, copula_type: str = 'gaussian', alpha: float = 0.05, n_sim: int = 10000) -> Dict[str, Any]:
+        """
+        Fit copula (Gaussian or Student-t) to returns, optionally per regime. Compute tail dependence metrics (lambda).
+        Args:
+            returns: DataFrame of asset returns
+            regime_labels: Optional regime labels (same length as returns)
+            copula_type: 'gaussian' or 'student'
+            alpha: tail threshold (default 0.05)
+            n_sim: number of copula samples for lambda estimation
+        Returns:
+            Dict of copula parameters and tail dependence metrics
+        """
+        def compute_tail_dependence(u, v, alpha=0.05):
+            return np.mean((u < alpha) & (v < alpha)) / alpha
+        if copula_type == 'gaussian' and GaussianMultivariate is not None:
+            copula = GaussianMultivariate()
+        elif copula_type == 'student' and StudentMultivariate is not None:
+            copula = StudentMultivariate()
+        else:
+            raise ImportError('Copula library not installed or unknown copula type')
+        results = {}
+        if regime_labels is not None:
+            for regime in np.unique(regime_labels):
+                mask = regime_labels == regime
+                copula.fit(returns[mask])
+                params = copula.to_dict()
+                # Simulate from copula
+                sim = copula.sample(n_sim)
+                lambdas = {}
+                for i, col1 in enumerate(sim.columns):
+                    for j, col2 in enumerate(sim.columns):
+                        if i < j:
+                            u, v = sim[col1].values, sim[col2].values
+                            lambda_L = compute_tail_dependence(u, v, alpha)
+                            lambdas[f"{col1}-{col2}"] = lambda_L
+                results[str(regime)] = {'params': params, 'lambda_L': lambdas}
+        else:
+            copula.fit(returns)
+            params = copula.to_dict()
+            sim = copula.sample(n_sim)
+            lambdas = {}
+            for i, col1 in enumerate(sim.columns):
+                for j, col2 in enumerate(sim.columns):
+                    if i < j:
+                        u, v = sim[col1].values, sim[col2].values
+                        lambda_L = compute_tail_dependence(u, v, alpha)
+                        lambdas[f"{col1}-{col2}"] = lambda_L
+            results['all'] = {'params': params, 'lambda_L': lambdas}
+        return results
+
+    def adjust_signal_by_risk_forecast(self, signal: pd.Series, forecasted_vol: float, base_threshold: float = 1.0, penalize: bool = True) -> pd.Series:
+        """
+        Adjust signal weights or thresholds based on forecasted volatility (or VaR).
+        Args:
+            signal: pd.Series of raw signal values
+            forecasted_vol: float, forecasted volatility or VaR
+            base_threshold: base threshold for signal
+            penalize: if True, penalize by 1/vol, else tighten threshold
+        Returns:
+            Adjusted signal Series
+        """
+        if penalize:
+            return signal / (forecasted_vol + 1e-8)
+        else:
+            return signal.where(signal.abs() > base_threshold * forecasted_vol, 0)
+
+    def risk_factor_attribution(self, returns: pd.DataFrame, factors: Optional[pd.DataFrame] = None, method: str = 'pca', n_factors: int = 3) -> Dict[str, Any]:
+        """
+        Attribute portfolio risk to factors (PCA or Fama-French).
+        Args:
+            returns: DataFrame of asset returns
+            factors: DataFrame of factor returns (for Fama-French)
+            method: 'pca' or 'fama_french'
+            n_factors: number of factors to use
+        Returns:
+            Dict with factor exposures and % risk explained
+        """
+        if method == 'pca':
+            pca = PCA(n_components=n_factors)
+            pca.fit(returns)
+            exposures = pca.components_
+            explained = pca.explained_variance_ratio_
+            return {'factor_exposures': exposures, 'explained_variance': explained}
+        elif method == 'fama_french':
+            if factors is None:
+                raise ValueError('Must provide factor returns for Fama-French attribution')
+            exposures = {}
+            for col in returns.columns:
+                model = sm.OLS(returns[col], sm.add_constant(factors)).fit()
+                exposures[col] = model.params.to_dict()
+            return {'factor_exposures': exposures}
+        else:
+            raise ValueError('Unknown factor attribution method')
+
+    def bootstrap_metric(self, metric_fn, returns: pd.Series, n: int = 1000) -> Tuple[float, float]:
+        """
+        Compute bootstrapped confidence interval for a risk metric.
+        Args:
+            metric_fn: function to compute metric
+            returns: pd.Series of returns
+            n: number of bootstrap samples
+        Returns:
+            (lower, upper) 95% CI
+        """
+        boot = [metric_fn(returns.sample(frac=1, replace=True)) for _ in range(n)]
+        return np.percentile(boot, [2.5, 97.5])
+
+    def decompose_expected_shortfall(self, returns: pd.DataFrame, weights: Optional[np.ndarray] = None, alpha: float = 0.05) -> Dict[str, Any]:
+        """
+        Decompose Expected Shortfall (ES) by asset and by time period. Compute marginal ES contributions.
+        Args:
+            returns: DataFrame of asset returns
+            weights: Portfolio weights (defaults to equal)
+            alpha: ES confidence level
+        Returns:
+            Dict with ES by asset, by period, and marginal contributions
+        """
+        if weights is None:
+            weights = np.ones(returns.shape[1]) / returns.shape[1]
+        port_returns = returns.dot(weights)
+        var = np.percentile(port_returns, 100 * alpha)
+        es_mask = port_returns <= var
+        es_periods = returns[es_mask]
+        es_by_asset = es_periods.mean()
+        es_by_time = es_periods.index.tolist()
+        # Marginal ES: asset's average loss during ES events, weighted
+        marginal_es = (es_periods * weights).mean()
+        # Correlation factor (approx): asset's correlation with portfolio during ES periods
+        corr_factors = es_periods.corrwith(port_returns[es_mask])
+        es_contribution = es_by_asset * weights * corr_factors
+        return {
+            'es_by_asset': es_by_asset.to_dict(),
+            'es_periods': es_by_time,
+            'marginal_es': marginal_es.to_dict() if hasattr(marginal_es, 'to_dict') else float(marginal_es),
+            'es_contribution': es_contribution.to_dict(),
+        }

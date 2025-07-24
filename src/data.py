@@ -9,6 +9,7 @@ import pandas as pd
 import yfinance as yf  # New import
 from dotenv import load_dotenv
 import numpy as np
+from src.features import calculate_rsi, calculate_williams_r, calculate_semiconductor_pmi
 
 # Set up logging
 logging.basicConfig(
@@ -95,18 +96,18 @@ class DataLoader:
                     if self.config.ohlcv:
                         prices_dict[ticker] = ticker_data  # Store full OHLCV
                     else:
-                        # Use 'Adj Close {ticker}' if available, otherwise fall back to 'Close {ticker}'
-                        adj_col = f'Adj Close {ticker}'
-                        close_col = f'Close {ticker}'
-                        volume_col = f'Volume {ticker}'
-                        if adj_col in ticker_data.columns:
-                            price_col = adj_col
-                        elif close_col in ticker_data.columns:
-                            price_col = close_col
-                        else:
+                        # Use 'Adj Close {ticker}', 'Close {ticker}', 'Adj Close', or 'Close' if available
+                        possible_close_cols = [f'Adj Close {ticker}', f'Close {ticker}', 'Adj Close', 'Close']
+                        price_col = None
+                        for col in possible_close_cols:
+                            if col in ticker_data.columns:
+                                price_col = col
+                                break
+                        if price_col is None:
                             raise ValueError(f"No price column found for {ticker} in columns: {ticker_data.columns}")
                         cols = [price_col]
-                        if volume_col in ticker_data.columns:
+                        volume_col = f'Volume {ticker}' if f'Volume {ticker}' in ticker_data.columns else 'Volume' if 'Volume' in ticker_data.columns else None
+                        if volume_col:
                             cols.append(volume_col)
                         prices_dict[ticker] = ticker_data[cols]
                 else:
@@ -124,12 +125,28 @@ class DataLoader:
 
             # Combine Adj Close or Close for returns calculation
             prices = pd.DataFrame({
-                t: (df[f'Adj Close {t}'] if f'Adj Close {t}' in df.columns else df[f'Close {t}'])
+                t: (
+                    df[f'Adj Close {t}'] if f'Adj Close {t}' in df.columns else
+                    df[f'Close {t}'] if f'Close {t}' in df.columns else
+                    df['Adj Close'] if 'Adj Close' in df.columns else
+                    df['Close'] if 'Close' in df.columns else
+                    None
+                )
                 for t, df in prices_dict.items()
-                if (df is not None and not df.empty and (f'Adj Close {t}' in df.columns or f'Close {t}' in df.columns))
+                if (df is not None and not df.empty and (
+                    f'Adj Close {t}' in df.columns or f'Close {t}' in df.columns or
+                    'Adj Close' in df.columns or 'Close' in df.columns
+                ))
             })
             prices = prices.ffill().bfill()
             returns = prices.pct_change().dropna()
+
+            # Diagnostics: print prices and returns head, describe, and nonzero count
+            print("\n[DIAGNOSTIC] Prices head:\n", prices.head(20))
+            print("\n[DIAGNOSTIC] Returns head:\n", returns.head(20))
+            print("\n[DIAGNOSTIC] Prices describe:\n", prices.describe())
+            print("\n[DIAGNOSTIC] Returns describe:\n", returns.describe())
+            print("\n[DIAGNOSTIC] Nonzero returns count:", (returns != 0).sum().sum())
 
             # Resample if needed
             if self.config.frequency != 'D':
@@ -257,6 +274,9 @@ class DataLoader:
             df['ewm_volatility'] = r.ewm(span=window_vol).std()
             # Momentum
             df['momentum'] = r.rolling(window=window_fast).mean()
+            # Add momentum_20d alias if window_fast == 20
+            if window_fast == 20:
+                df['momentum_20d'] = df['momentum']
             # Moving averages
             df['fast_ma'] = r.rolling(window=window_fast).mean()
             df['slow_ma'] = r.rolling(window=window_slow).mean()
@@ -265,49 +285,52 @@ class DataLoader:
             df['kurtosis'] = r.rolling(window=window_vol).kurt()
             # RSI
             df['rsi'] = DataLoader._calculate_rsi(r)
+            # Add rsi_14 for compatibility
+            df['rsi_14'] = calculate_rsi(r, 14)
             # MACD
             ema12 = r.ewm(span=12).mean()
             ema26 = r.ewm(span=26).mean()
             df['macd'] = ema12 - ema26
             df['macd_signal'] = df['macd'].ewm(span=9).mean()
-            
+            # Realized volatility (15d)
+            df['realized_volatility'] = r.rolling(15).std()
+            # Williams %R
+            df['williams_r'] = calculate_williams_r(r)
+            # Semiconductor PMI
+            df['semiconductor_pmi'] = calculate_semiconductor_pmi(r)
             # Add macro indicators if available
             if macro_data:
                 for macro_ticker, macro_df in macro_data.items():
                     if macro_df is not None and not macro_df.empty:
-                        # Get the price column - macro data has 'Close' or 'Price' columns
                         price_col = None
                         if 'Close' in macro_df.columns:
                             price_col = 'Close'
                         elif 'Price' in macro_df.columns:
                             price_col = 'Price'
                         else:
-                            # Fallback: look for any column with 'Close' or 'Adj Close' in name
                             for col in macro_df.columns:
                                 if 'Close' in col or 'Adj Close' in col:
                                     price_col = col
                                     break
-                        
                         if price_col:
                             macro_series = macro_df[price_col].reindex(df.index).fillna(method='ffill')
-                            
-                            if macro_ticker == '^VIX':
-                                # VIX features
-                                df['vix'] = macro_series
-                                df['vix_ma'] = macro_series.rolling(window=21).mean()
-                                df['vix_ratio'] = macro_series / df['vix_ma']
-                                df['vix_regime'] = (macro_series > macro_series.rolling(window=252).quantile(0.75)).astype(int)
-                            elif macro_ticker in ['^TNX', '^TYX']:
-                                # Yield curve features
+                            if macro_ticker in ['^TNX', '^TYX']:
                                 df[f'{macro_ticker.lower()}_yield'] = macro_series
                                 df[f'{macro_ticker.lower()}_yield_ma'] = macro_series.rolling(window=21).mean()
                                 df[f'{macro_ticker.lower()}_yield_spread'] = macro_series - macro_series.rolling(window=252).mean()
-            
+                # Term structure slope: ^TYX - ^TNX
+                if '^TYX' in macro_data and '^TNX' in macro_data:
+                    tyx = macro_data['^TYX']['Close'].reindex(df.index).fillna(method='ffill')
+                    tnx = macro_data['^TNX']['Close'].reindex(df.index).fillna(method='ffill')
+                    df['term_structure_slope'] = tyx - tnx
+                else:
+                    df['term_structure_slope'] = 0
+            else:
+                df['term_structure_slope'] = 0
             # Clean and normalize if requested
             df = df.fillna(method='ffill').fillna(method='bfill').fillna(0)
             if normalize:
                 df = (df - df.mean()) / (df.std() + 1e-8)
-            
             features[ticker] = df
 
         return features
@@ -335,3 +358,41 @@ class DataLoader:
             raise ValueError("Returns dataframe has NaNs")
         if (prices.nunique() <= 1).any():
             raise ValueError("Some price series are constant or ill-behaved")
+
+
+def get_portfolio_features_with_macro(portfolio_returns: pd.Series, macro_data: dict) -> pd.DataFrame:
+    """
+    Compute portfolio-level features (returns, volatility, momentum, skewness, kurtosis, etc.)
+    and merge in macro features (^tnx_yield, etc.) for use in regime detection.
+    """
+    import numpy as np
+    import pandas as pd
+    # Compute standard features
+    df = pd.DataFrame(index=portfolio_returns.index)
+    df['returns'] = portfolio_returns
+    window_vol = 21
+    window_fast = 20
+    window_slow = 50
+    df['volatility'] = portfolio_returns.rolling(window=window_vol).std()
+    df['momentum'] = portfolio_returns.rolling(window=window_fast).mean()
+    df['skewness'] = portfolio_returns.rolling(window=window_vol).skew()
+    df['kurtosis'] = portfolio_returns.rolling(window=window_vol).kurt()
+    # Add macro features if available
+    if macro_data:
+        # TNX
+        tnx_df = macro_data.get('^TNX')
+        if tnx_df is not None and not tnx_df.empty:
+            tnx = tnx_df['Close'].reindex(df.index).fillna(method='ffill')
+            df['^tnx_yield'] = tnx
+            df['^tnx_yield_ma'] = tnx.rolling(window=21).mean()
+            df['^tnx_yield_spread'] = tnx - tnx.rolling(window=252).mean()
+        # TYX
+        tyx_df = macro_data.get('^TYX')
+        if tyx_df is not None and not tyx_df.empty:
+            tyx = tyx_df['Close'].reindex(df.index).fillna(method='ffill')
+            df['^tyx_yield'] = tyx
+            df['^tyx_yield_ma'] = tyx.rolling(window=21).mean()
+            df['^tyx_yield_spread'] = tyx - tyx.rolling(window=252).mean()
+    # Clean up
+    df = df.fillna(method='ffill').fillna(method='bfill').fillna(0)
+    return df

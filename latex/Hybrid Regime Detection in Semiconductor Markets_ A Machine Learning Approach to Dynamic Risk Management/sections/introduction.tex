@@ -1,68 +1,7 @@
-\section{Introduction}
+The semiconductor industry, a cornerstone of modern technology, is marked by rapid innovation, pronounced market swings, and sensitivity to macroeconomic and geopolitical events. These characteristics make risk management and portfolio allocation in semiconductor equities especially challenging. Traditional investment strategies often struggle to adapt to the frequent and abrupt regime shifts that typify this sector.
 
-\subsection{Market Context}
-The semiconductor industry exhibits complex market dynamics characterized by distinct volatility regimes and rapid technological transitions. Recent global supply chain disruptions and geopolitical tensions have further amplified these challenges. My empirical analysis of four major semiconductor companies (NVDA, AMD, INTC, ASML) from 2017 to 2023 reveals significant regime-dependent behavior, with portfolio volatility reaching 42.72\% and Value at Risk (95\%) of -3.99\% \citep{alexander2008market}. These dynamics pose unique challenges for portfolio management and risk assessment \citep{mcneil2015quantitative}.
+\textbf{Purpose and Motivation:} This work addresses the need for robust, adaptive tools to detect and respond to market regime shifts in semiconductor equities. Effective regime detection enables investors and risk managers to dynamically adjust strategies, mitigate drawdowns, and capitalize on emerging opportunities. In an environment where transitions between high-growth, correction, and crisis periods are common, timely and accurate regime identification is essential for both risk mitigation and performance enhancement.
 
-\subsection{Research Objectives}
-This paper addresses three key challenges in semiconductor market analysis:
+\textbf{Why Regime Detection Matters in Semiconductors:} Semiconductor markets are uniquely exposed to global supply chain disruptions, technological breakthroughs, cyclical demand, and policy interventions. These factors can trigger rapid transitions between distinct market regimes, each with its own risk-return profile. Failure to recognize and adapt to these shifts can result in suboptimal performance or significant losses. Thus, advanced regime detection is not only of academic interest but also a practical necessity for investors in this space.
 
-\begin{enumerate}
-    \item \textbf{Regime Detection}: Development of a hybrid methodology combining Hidden Markov Models \citep{hamilton1989new} with LSTM networks \citep{fischer2018deep}, featuring robust fallback mechanisms and regime smoothing
-    \item \textbf{Risk Assessment}: Implementation of regime-dependent risk metrics with dynamic position sizing and comprehensive stress testing \citep{mcneil2000estimation}
-    \item \textbf{Portfolio Management}: Design of adaptive position sizing strategies with multi-level risk controls \citep{ang2002regime}
-\end{enumerate}
-
-\subsection{Methodological Framework}
-The implementation introduces several key innovations:
-
-\begin{enumerate}
-    \item \textbf{Hybrid Detection System} \citep{hochreiter1997long}:
-    \begin{itemize}
-        \item Integration of HMM and LSTM with automated fallback mechanisms
-        \item Mode-based regime smoothing with configurable windows
-        \item Conservative regime selection in ensemble approach
-    \end{itemize}
-
-    \item \textbf{Multi-horizon Analysis} \citep{guidolin2011regime}:
-    \begin{itemize}
-        \item Short-term (21-day) volatility patterns
-        \item Medium-term (63-day) market dynamics
-        \item Comprehensive validation metrics including AIC and BIC
-    \end{itemize}
-
-    \item \textbf{Risk Management Framework} \citep{artzner1999coherent}:
-    \begin{itemize}
-        \item Dynamic VaR and Expected Shortfall calculations
-        \item Volatility-scaled position sizing
-        \item Multi-level risk controls (position, sector, portfolio)
-    \end{itemize}
-\end{enumerate}
-
-\subsection{Key Findings}
-The empirical analysis, based on 1,759 trading days of data, reveals three distinct market regimes with statistically significant characteristics:
-
-\begin{itemize}
-    \item Low Volatility Regime (56.62\% occurrence):
-    \begin{itemize}
-        \item Mean return: 4.36\% (t=3.42, p < 0.05)
-        \item Volatility: 26.10\%
-        \item High persistence (0.81 probability)
-    \end{itemize}
-
-    \item Medium Volatility Regime (31.89\% occurrence):
-    \begin{itemize}
-        \item Mean return: 2.81\% (t=2.15, p < 0.05)
-        \item Volatility: 37.00\%
-        \item Stable transitions (0.82 persistence)
-    \end{itemize}
-
-    \item High Volatility Regime (11.48\% occurrence):
-    \begin{itemize}
-        \item Mean return: -0.25\% (t=-0.18)
-        \item Volatility: 57.06\%
-        \item Clear regime boundaries
-    \end{itemize}
-\end{itemize}
-
-\subsection{Paper Organization}
-The remainder of this paper is organized as follows: Section II presents the methodological framework and implementation details. Section III describes the data and empirical validation approach. Section IV presents the results and statistical analysis. Section V discusses practical implications and limitations. Section VI concludes with directions for future research.
+An overview of our hybrid HMM-LSTM regime detection methodology, which integrates probabilistic modeling and deep learning, is provided in the following section.

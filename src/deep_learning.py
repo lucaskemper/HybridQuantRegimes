@@ -7,6 +7,14 @@ import tensorflow as tf
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, RobustScaler
 
+import logging
+
+from src.features import calculate_enhanced_features
+
+import tensorflow_probability as tfp
+
+tfd = tfp.distributions
+
 
 @dataclass
 class DeepLearningConfig:
@@ -47,6 +55,7 @@ class LSTMRegimeDetector:
         self._is_fitted = False
         self.n_features = 15  # Fixed to exactly 15 features
         self.model = self._build_model()
+        self.logger = logging.getLogger(__name__)
 
     def _build_model(self) -> tf.keras.Model:
         """Build enhanced LSTM model architecture"""
@@ -119,8 +128,9 @@ class LSTMRegimeDetector:
             lstm3 = tf.keras.layers.BatchNormalization()(lstm3)
         
         # Dense layers
+        # Use the last value in hidden_dims for the dense layer for flexibility
         dense1 = tf.keras.layers.Dense(
-            self.config.hidden_dims[3], 
+            self.config.hidden_dims[-1],
             activation="relu",
             kernel_regularizer=tf.keras.regularizers.l2(self.config.l2_regularization)
         )(lstm3)
@@ -137,86 +147,43 @@ class LSTMRegimeDetector:
         # Compile with AdamW optimizer
         optimizer = tf.keras.optimizers.AdamW(
             learning_rate=self.config.learning_rate,
-            weight_decay=0.01
+            weight_decay=0.01,
+            clipnorm=self.config.gradient_clipping
         )
-        
+        try:
+            from tensorflow_addons.metrics import F1Score
+            metrics = [
+                "accuracy",
+                tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
+                F1Score(num_classes=self.config.n_regimes, average="macro", name="f1_macro")
+            ]
+        except ImportError:
+            metrics = ["accuracy", tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy")]
         model.compile(
             optimizer=optimizer,
             loss="categorical_crossentropy",
-            metrics=["accuracy"]
+            metrics=metrics
         )
         
         return model
 
     def _prepare_enhanced_features(self, returns: pd.Series) -> np.ndarray:
-        """Prepare enhanced features for LSTM with better preprocessing"""
-        # Validate input
-        if len(returns) < self.config.sequence_length:
-            raise ValueError(f"Input length must be >= {self.config.sequence_length}")
-
-        features = pd.DataFrame(index=returns.index)
-        
-        # Basic features with better handling of extreme values
-        features["returns"] = returns
-        features["log_returns"] = np.log(np.abs(returns) + 1e-8)  # Prevent log(0)
-        
-        # Volatility features with clipping
-        vol_21 = returns.rolling(window=21).std()
-        vol_21 = vol_21.clip(lower=1e-8, upper=vol_21.quantile(0.99))  # Clip extreme values
-        features["volatility"] = vol_21
-        features["ewm_volatility"] = returns.ewm(span=21).std().clip(lower=1e-8)
-        
-        # Momentum features with clipping (reduced to fit 15 features)
-        for period in [5, 20]:  # Reduced from 4 periods to 2
-            momentum = returns.rolling(window=period).mean()
-            momentum = momentum.clip(lower=momentum.quantile(0.01), upper=momentum.quantile(0.99))
-            features[f"momentum_{period}d"] = momentum
-            
-            roc = (returns / returns.shift(period) - 1)
-            roc = roc.clip(lower=-1, upper=10)  # Clip extreme ROC values
-            features[f"roc_{period}d"] = roc
-        
-        # Technical indicators with better handling
-        features["rsi_14"] = self._calculate_rsi(returns, 14)
-        features["rsi_30"] = self._calculate_rsi(returns, 30)
-        features["macd_signal"] = self._calculate_macd(returns)
-        features["bollinger_position"] = self._calculate_bollinger_position(returns)
-        features["williams_r"] = self._calculate_williams_r(returns)
-        
-        # Skewness and kurtosis with clipping
-        skew = returns.rolling(window=21).skew()
-        skew = skew.clip(lower=-5, upper=5)  # Clip extreme skewness
-        features["skewness"] = skew
-        
-        kurt = returns.rolling(window=21).kurt()
-        kurt = kurt.clip(lower=-10, upper=10)  # Clip extreme kurtosis
-        features["kurtosis"] = kurt
-
-        # Forward fill then backward fill any remaining NaN values
-        features = features.ffill().bfill()
-        
-        # Ensure exactly 15 features
+        """Prepare enhanced features for LSTM with better preprocessing (centralized)"""
+        print("[LSTMRegimeDetector._prepare_enhanced_features] returns type:", type(returns))
+        print("[LSTMRegimeDetector._prepare_enhanced_features] returns shape:", getattr(returns, 'shape', None))
+        features = calculate_enhanced_features(returns)
+        print("[LSTMRegimeDetector._prepare_enhanced_features] features type:", type(features))
+        print("[LSTMRegimeDetector._prepare_enhanced_features] features shape:", getattr(features, 'shape', None))
+        print("[LSTMRegimeDetector._prepare_enhanced_features] features columns:", getattr(features, 'columns', None))
+        # Ensure exactly 15 features BEFORE scaling
         if len(features.columns) > 15:
-            # Keep only the first 15 features
             features = features.iloc[:, :15]
         elif len(features.columns) < 15:
-            # Pad with zeros if needed
-            while len(features.columns) < 15:
+            for _ in range(15 - len(features.columns)):
                 features[f"pad_{len(features.columns)}"] = 0
-        
-        # Additional clipping to prevent infinity values
-        for col in features.columns:
-            features[col] = features[col].clip(
-                lower=features[col].quantile(0.001),
-                upper=features[col].quantile(0.999)
-            )
-
         # Scale features with robust scaling
         scaled_features = self.scaler.fit_transform(features) if not self._is_fitted else self.scaler.transform(features)
-        
-        # Final clipping to ensure no infinity values
         scaled_features = np.clip(scaled_features, -10, 10)
-        
         return scaled_features
 
     def _create_sequences(self, features: np.ndarray) -> np.ndarray:
@@ -226,44 +193,6 @@ class LSTMRegimeDetector:
             sequence = features[i:(i + self.config.sequence_length)]
             X.append(sequence)
         return np.array(X)
-
-    @staticmethod
-    def _calculate_rsi(returns: pd.Series, periods: int = 14) -> pd.Series:
-        """Calculate Relative Strength Index"""
-        delta = returns.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=periods).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=periods).mean()
-        
-        rs = gain / (loss + 1e-6)
-        rsi = 100 - (100 / (1 + rs))
-        return rsi.fillna(50)  # Fill NaN with neutral RSI
-
-    @staticmethod
-    def _calculate_macd(returns: pd.Series) -> pd.Series:
-        """Calculate MACD signal line"""
-        ema12 = returns.ewm(span=12).mean()
-        ema26 = returns.ewm(span=26).mean()
-        macd = ema12 - ema26
-        signal = macd.ewm(span=9).mean()
-        return signal
-
-    @staticmethod
-    def _calculate_bollinger_position(returns: pd.Series) -> pd.Series:
-        """Calculate position within Bollinger Bands"""
-        sma = returns.rolling(20).mean()
-        std = returns.rolling(20).std()
-        upper = sma + (2 * std)
-        lower = sma - (2 * std)
-        position = (returns - lower) / (upper - lower)
-        return position
-
-    @staticmethod
-    def _calculate_williams_r(returns: pd.Series) -> pd.Series:
-        """Calculate Williams %R"""
-        high = returns.rolling(14).max()
-        low = returns.rolling(14).min()
-        williams_r = ((high - returns) / (high - low)) * -100
-        return williams_r
 
     def fit(self, returns: pd.Series, initial_regimes: np.ndarray) -> None:
         """
@@ -291,6 +220,9 @@ class LSTMRegimeDetector:
                 shuffle=False
             )
 
+            # Logging training start
+            self.logger.info(f"Starting LSTM training: X shape={X.shape}, y shape={y.shape}, epochs={self.config.epochs}")
+
             # Create callbacks
             callbacks = []
             
@@ -312,11 +244,6 @@ class LSTMRegimeDetector:
                 )
                 callbacks.append(lr_scheduler)
             
-            # Gradient clipping
-            if self.config.gradient_clipping > 0:
-                optimizer = self.model.optimizer
-                optimizer.clipnorm = self.config.gradient_clipping
-
             # Train model
             self.model.fit(
                 X_train, y_train,
@@ -331,6 +258,7 @@ class LSTMRegimeDetector:
 
         except Exception as e:
             self._is_fitted = False
+            self.logger.error(f"Training failed: {str(e)}")
             raise RuntimeError(f"Training failed: {str(e)}") from e
 
     def predict(self, returns: pd.Series) -> pd.Series:
@@ -420,13 +348,15 @@ class LSTMRegimeDetector:
         import os
         import joblib
         from tensorflow import keras
-        # Load Keras model
-        self.model = keras.models.load_model(os.path.join(path, "lstm_model.h5"))
-        # Load scaler
-        self.scaler = joblib.load(os.path.join(path, "scaler.pkl"))
-        # Load config
-        self.config = joblib.load(os.path.join(path, "config.pkl"))
-        self._is_fitted = True
+        try:
+            self.model = keras.models.load_model(os.path.join(path, "lstm_model.h5"))
+            self.scaler = joblib.load(os.path.join(path, "scaler.pkl"))
+            self.config = joblib.load(os.path.join(path, "config.pkl"))
+            self._is_fitted = True
+        except Exception as e:
+            self._is_fitted = False
+            self.logger.error(f"Failed to load model or dependencies: {e}")
+            raise RuntimeError(f"Failed to load model or dependencies: {e}")
 
 
 class TransformerRegimeDetector:
@@ -438,6 +368,7 @@ class TransformerRegimeDetector:
         self._is_fitted = False
         self.n_features = 15  # Fixed to exactly 15 features
         self.model = self._build_model()
+        self.logger = logging.getLogger(__name__)
 
     def _build_model(self) -> tf.keras.Model:
         """Build Transformer model architecture"""
@@ -489,13 +420,22 @@ class TransformerRegimeDetector:
         
         # Compile
         optimizer = tf.keras.optimizers.Adam(
-            learning_rate=self.config.learning_rate
+            learning_rate=self.config.learning_rate,
+            clipnorm=self.config.gradient_clipping
         )
-        
+        try:
+            from tensorflow_addons.metrics import F1Score
+            metrics = [
+                "accuracy",
+                tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
+                F1Score(num_classes=self.config.n_regimes, average="macro", name="f1_macro")
+            ]
+        except ImportError:
+            metrics = ["accuracy", tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy")]
         model.compile(
             optimizer=optimizer,
             loss="categorical_crossentropy",
-            metrics=["accuracy"]
+            metrics=metrics
         )
         
         return model
@@ -511,73 +451,16 @@ class TransformerRegimeDetector:
         return pos_encoding
 
     def _prepare_features(self, returns: pd.Series) -> np.ndarray:
-        """Prepare features for Transformer with better preprocessing"""
-        if len(returns) < self.config.sequence_length:
-            raise ValueError(f"Input length must be >= {self.config.sequence_length}")
-
-        features = pd.DataFrame(index=returns.index)
-        
-        # Basic features with better handling of extreme values
-        features["returns"] = returns
-        features["log_returns"] = np.log(np.abs(returns) + 1e-8)  # Prevent log(0)
-        
-        # Volatility features with clipping
-        vol_21 = returns.rolling(window=21).std()
-        vol_21 = vol_21.clip(lower=1e-8, upper=vol_21.quantile(0.99))  # Clip extreme values
-        features["volatility"] = vol_21
-        features["ewm_volatility"] = returns.ewm(span=21).std().clip(lower=1e-8)
-        
-        # Momentum features with clipping (reduced to fit 15 features)
-        for period in [5, 20]:  # Reduced from 4 periods to 2
-            momentum = returns.rolling(window=period).mean()
-            momentum = momentum.clip(lower=momentum.quantile(0.01), upper=momentum.quantile(0.99))
-            features[f"momentum_{period}d"] = momentum
-            
-            roc = (returns / returns.shift(period) - 1)
-            roc = roc.clip(lower=-1, upper=10)  # Clip extreme ROC values
-            features[f"roc_{period}d"] = roc
-        
-        # Technical indicators with better handling
-        features["rsi_14"] = self._calculate_rsi(returns, 14)
-        features["rsi_30"] = self._calculate_rsi(returns, 30)
-        features["macd_signal"] = self._calculate_macd(returns)
-        features["bollinger_position"] = self._calculate_bollinger_position(returns)
-        features["williams_r"] = self._calculate_williams_r(returns)
-        
-        # Skewness and kurtosis with clipping
-        skew = returns.rolling(window=21).skew()
-        skew = skew.clip(lower=-5, upper=5)  # Clip extreme skewness
-        features["skewness"] = skew
-        
-        kurt = returns.rolling(window=21).kurt()
-        kurt = kurt.clip(lower=-10, upper=10)  # Clip extreme kurtosis
-        features["kurtosis"] = kurt
-
-        # Forward fill then backward fill any remaining NaN values
-        features = features.ffill().bfill()
-        
-        # Ensure exactly 15 features
+        """Prepare features for Transformer with better preprocessing (centralized)"""
+        features = calculate_enhanced_features(returns)
+        # Ensure exactly 15 features BEFORE scaling
         if len(features.columns) > 15:
-            # Keep only the first 15 features
             features = features.iloc[:, :15]
         elif len(features.columns) < 15:
-            # Pad with zeros if needed
-            while len(features.columns) < 15:
+            for _ in range(15 - len(features.columns)):
                 features[f"pad_{len(features.columns)}"] = 0
-
-        # Additional clipping to prevent infinity values
-        for col in features.columns:
-            features[col] = features[col].clip(
-                lower=features[col].quantile(0.001),
-                upper=features[col].quantile(0.999)
-            )
-
-        # Scale features with robust scaling
         scaled_features = self.scaler.fit_transform(features) if not self._is_fitted else self.scaler.transform(features)
-        
-        # Final clipping to ensure no infinity values
         scaled_features = np.clip(scaled_features, -10, 10)
-        
         return scaled_features
 
     def _create_sequences(self, features: np.ndarray) -> np.ndarray:
@@ -587,44 +470,6 @@ class TransformerRegimeDetector:
             sequence = features[i:(i + self.config.sequence_length)]
             X.append(sequence)
         return np.array(X)
-
-    @staticmethod
-    def _calculate_rsi(returns: pd.Series, periods: int = 14) -> pd.Series:
-        """Calculate Relative Strength Index"""
-        delta = returns.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=periods).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=periods).mean()
-        
-        rs = gain / (loss + 1e-6)
-        rsi = 100 - (100 / (1 + rs))
-        return rsi.fillna(50)
-
-    @staticmethod
-    def _calculate_macd(returns: pd.Series) -> pd.Series:
-        """Calculate MACD signal line"""
-        ema12 = returns.ewm(span=12).mean()
-        ema26 = returns.ewm(span=26).mean()
-        macd = ema12 - ema26
-        signal = macd.ewm(span=9).mean()
-        return signal
-
-    @staticmethod
-    def _calculate_bollinger_position(returns: pd.Series) -> pd.Series:
-        """Calculate position within Bollinger Bands"""
-        sma = returns.rolling(20).mean()
-        std = returns.rolling(20).std()
-        upper = sma + (2 * std)
-        lower = sma - (2 * std)
-        position = (returns - lower) / (upper - lower)
-        return position
-
-    @staticmethod
-    def _calculate_williams_r(returns: pd.Series) -> pd.Series:
-        """Calculate Williams %R"""
-        high = returns.rolling(14).max()
-        low = returns.rolling(14).min()
-        williams_r = ((high - returns) / (high - low)) * -100
-        return williams_r
 
     def fit(self, returns: pd.Series, initial_regimes: np.ndarray) -> None:
         """Fit the Transformer model"""
@@ -645,6 +490,9 @@ class TransformerRegimeDetector:
                 test_size=self.config.validation_split,
                 shuffle=False
             )
+
+            # Logging training start
+            self.logger.info(f"Starting Transformer training: X shape={X.shape}, y shape={y.shape}, epochs={self.config.epochs}")
 
             # Create callbacks
             callbacks = []
@@ -671,6 +519,7 @@ class TransformerRegimeDetector:
 
         except Exception as e:
             self._is_fitted = False
+            self.logger.error(f"Training failed: {str(e)}")
             raise RuntimeError(f"Training failed: {str(e)}") from e
 
     def predict(self, returns: pd.Series) -> pd.Series:
@@ -757,10 +606,119 @@ class TransformerRegimeDetector:
         import os
         import joblib
         from tensorflow import keras
-        # Load Keras model
-        self.model = keras.models.load_model(os.path.join(path, "transformer_model.h5"))
-        # Load scaler
-        self.scaler = joblib.load(os.path.join(path, "scaler.pkl"))
-        # Load config
-        self.config = joblib.load(os.path.join(path, "config.pkl"))
+        try:
+            self.model = keras.models.load_model(os.path.join(path, "transformer_model.h5"))
+            self.scaler = joblib.load(os.path.join(path, "scaler.pkl"))
+            self.config = joblib.load(os.path.join(path, "config.pkl"))
+            self._is_fitted = True
+        except Exception as e:
+            self._is_fitted = False
+            self.logger.error(f"Failed to load model or dependencies: {e}")
+            raise RuntimeError(f"Failed to load model or dependencies: {e}")
+
+
+class BayesianLSTMRegimeForecaster:
+    """Bayesian LSTM for risk forecasting with predictive uncertainty."""
+    def __init__(self, config: DeepLearningConfig):
+        self.config = config
+        self.n_features = 15
+        self.model = self._build_bayesian_lstm_model()
+        self.scaler = RobustScaler()
+        self._is_fitted = False
+
+    def _build_bayesian_lstm_model(self) -> tf.keras.Model:
+        inputs = tf.keras.layers.Input(shape=(self.config.sequence_length, self.n_features))
+        # Bayesian DenseVariational layer as input
+        x = tfp.layers.DenseVariational(
+            units=self.config.hidden_dims[0],
+            make_prior_fn=tfp.layers.default_mean_field_normal_fn(),
+            make_posterior_fn=tfp.layers.default_mean_field_normal_fn(),
+            kl_weight=1/self.config.sequence_length,
+            activation='tanh'
+        )(inputs)
+        # Standard LSTM layer
+        x = tf.keras.layers.LSTM(self.config.hidden_dims[1], return_sequences=False)(x)
+        x = tf.keras.layers.Dropout(self.config.dropout_rate)(x)
+        # Output: Predict mean and std for risk metric (e.g., volatility)
+        mean = tf.keras.layers.Dense(1)(x)
+        std = tf.keras.layers.Dense(1, activation='softplus')(x)
+        outputs = tf.keras.layers.Concatenate()([mean, std])
+        model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        model.compile(optimizer='adam', loss=self._nll_loss)
+        return model
+
+    def _nll_loss(self, y_true, y_pred):
+        mean = y_pred[:, 0]
+        std = y_pred[:, 1] + 1e-6
+        dist = tfd.Normal(loc=mean, scale=std)
+        return -dist.log_prob(y_true)
+
+    def _prepare_features(self, returns: pd.Series) -> np.ndarray:
+        features = calculate_enhanced_features(returns)
+        # Ensure exactly 15 features BEFORE scaling
+        if len(features.columns) > 15:
+            features = features.iloc[:, :15]
+        elif len(features.columns) < 15:
+            for _ in range(15 - len(features.columns)):
+                features[f"pad_{len(features.columns)}"] = 0
+        scaled_features = self.scaler.fit_transform(features) if not self._is_fitted else self.scaler.transform(features)
+        scaled_features = np.clip(scaled_features, -10, 10)
+        return scaled_features
+
+    def _create_sequences(self, features: np.ndarray) -> np.ndarray:
+        X = []
+        for i in range(len(features) - self.config.sequence_length):
+            sequence = features[i:(i + self.config.sequence_length)]
+            X.append(sequence)
+        return np.array(X)
+
+    def fit(self, returns: pd.Series, y: np.ndarray) -> None:
+        """
+        Fit the Bayesian LSTM model to predict a risk metric (e.g., next-period volatility or VaR).
+        Args:
+            returns: pd.Series of returns
+            y: np.ndarray of target risk metric (aligned with sequences)
+        """
+        features = self._prepare_features(returns)
+        X = self._create_sequences(features)
+        # Align y to match X
+        y = y[self.config.sequence_length:]
+        self.model.fit(X, y, epochs=self.config.epochs, batch_size=self.config.batch_size, verbose=1)
         self._is_fitted = True
+
+    def predict(self, returns: pd.Series, n_samples: int = 100) -> Dict[str, np.ndarray]:
+        """
+        Predict risk metric with uncertainty. Returns predictive mean and std for each sequence.
+        Args:
+            returns: pd.Series of returns
+            n_samples: Number of MC samples for uncertainty estimation
+        Returns:
+            Dict with 'mean', 'std', and 'all_samples' arrays
+        """
+        features = self._prepare_features(returns)
+        X = self._create_sequences(features)
+        preds = []
+        for _ in range(n_samples):
+            pred = self.model(X, training=True).numpy()
+            preds.append(pred)
+        preds = np.stack(preds, axis=0)  # shape (n_samples, n_obs, 2)
+        mean_pred = preds[..., 0].mean(axis=0)
+        std_pred = preds[..., 0].std(axis=0)
+        return {'mean': mean_pred, 'std': std_pred, 'all_samples': preds}
+
+    def predict_latest(self, returns: pd.Series, n_samples: int = 100) -> Dict[str, float]:
+        """
+        Predict risk metric for the latest window with uncertainty.
+        Returns dict with mean and std.
+        """
+        features = self._prepare_features(returns)
+        last_window = features[-self.config.sequence_length:]
+        X = np.expand_dims(last_window, axis=0)
+        preds = []
+        for _ in range(n_samples):
+            pred = self.model(X, training=True).numpy()[0]
+            preds.append(pred)
+        preds = np.stack(preds, axis=0)  # shape (n_samples, 2)
+        mean_pred = preds[:, 0].mean()
+        std_pred = preds[:, 0].std()
+        return {'mean': float(mean_pred), 'std': float(std_pred), 'all_samples': preds}
