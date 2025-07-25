@@ -176,7 +176,7 @@ git clone <repo_url>
 cd researchlucas
 ```
 
-2. **Install dependencies** (Python 3.10+ recommended)
+2. **Install dependencies** (Python 3.11 recommended)
 
 ```bash
 python -m venv venv
