@@ -1,4 +1,4 @@
-# HMM-LSTM Hybrid Market Regime Detection System
+# HybridQuantRegimes
 
 ## Table of Contents
 - [Overview](#overview)
@@ -111,7 +111,7 @@ Visualization/Reporting
 - **Regime-Specific Feature Weights:** Signals now use regime-specific feature weights learned via Ridge regression, adapting the signal formula to each detected regime.
 - **Dynamic Signal Formulation:**
   - In "High Vol" regimes, signals emphasize mean-reversion (RSI, Williams %R).
-  - In "Low Vol" regimes, signals emphasize momentum.
+  - In "Low Vol" regimes, signals emphasize momentum.tensorflow_probability
   - In "Medium Vol" regimes, signals blend both approaches.
 - **Soft Thresholding:** Weak signals are softly thresholded, retaining some edge for low-signal environments.
 - **Flexible Scaling:** Signal scaling can be set to `tanh` or `clip` (see config), with a tunable scaling factor (`scaler_k`).

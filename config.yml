@@ -1,5 +1,5 @@
 portfolio:
-  tickers: [SMH, SOXX, NVDA, AMD, TSM, INTC, QCOM, AVGO]
+  tickers: [NVDA, AMD, QCOM, INTC, MU, TXN, TSM, ASML, NXPI, AAPL, MSFT]
   start_date: '2019-01-01'
   end_date: '2024-01-01'
   weights: null
@@ -77,7 +77,7 @@ backtest:
   confidence_threshold: 0.8
   max_position_size: 1.0
   base_position_size: 0.5
-  rebalance_freq: '7D'
+  rebalance_freq: 'D'
   stop_loss: 0.02
   take_profit: 0.30
   max_drawdown: 0.10

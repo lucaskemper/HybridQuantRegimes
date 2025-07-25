@@ -51,6 +51,7 @@ class LSTMRegimeDetector:
 
     def __init__(self, config: DeepLearningConfig):
         self.config = config
+        self.sequence_length = config.sequence_length  # Ensure this attribute is always set
         self.scaler = RobustScaler()  # Changed to RobustScaler
         self._is_fitted = False
         self.n_features = 15  # Fixed to exactly 15 features
@@ -171,6 +172,9 @@ class LSTMRegimeDetector:
         """Prepare enhanced features for LSTM with better preprocessing (centralized)"""
         print("[LSTMRegimeDetector._prepare_enhanced_features] returns type:", type(returns))
         print("[LSTMRegimeDetector._prepare_enhanced_features] returns shape:", getattr(returns, 'shape', None))
+        if isinstance(returns, pd.DataFrame):
+            print("[LSTMRegimeDetector._prepare_enhanced_features] WARNING: DataFrame received, converting to first column.")
+            returns = returns.iloc[:, 0]
         features = calculate_enhanced_features(returns)
         print("[LSTMRegimeDetector._prepare_enhanced_features] features type:", type(features))
         print("[LSTMRegimeDetector._prepare_enhanced_features] features shape:", getattr(features, 'shape', None))
@@ -275,6 +279,9 @@ class LSTMRegimeDetector:
             
             # Make predictions
             predictions = self.model.predict(X)
+            print('[LSTMRegimeDetector.predict] predictions shape:', getattr(predictions, 'shape', None), 'type:', type(predictions))
+            if predictions.ndim == 1:
+                predictions = predictions.reshape(-1, 1)
             regime_predictions = np.argmax(predictions, axis=1)
             
             # Create Series with proper index
@@ -298,23 +305,23 @@ class LSTMRegimeDetector:
         try:
             # Prepare features
             features = self._prepare_enhanced_features(returns)
-            
             # Create sequences
             X = self._create_sequences(features)
-            
             # Make predictions
             predictions = self.model.predict(X)
-            
-            # Create DataFrame with proper index
+            print('[LSTMRegimeDetector.predict_proba] predictions shape:', getattr(predictions, 'shape', None), 'type:', type(predictions))
+            if predictions.ndim == 1:
+                predictions = predictions.reshape(-1, 1)
+            # Use the index after the lookback window to match the number of predictions
             prediction_index = returns.index[self.config.sequence_length:]
+            print('[LSTMRegimeDetector.predict_proba] prediction_index shape:', getattr(prediction_index, 'shape', None))
             regime_probs = pd.DataFrame(
                 predictions,
                 index=prediction_index,
                 columns=[f"regime_{i}" for i in range(self.config.n_regimes)]
             )
-            
+            print('[LSTMRegimeDetector.predict_proba] regime_probs shape:', getattr(regime_probs, 'shape', None), 'columns:', regime_probs.columns)
             return regime_probs
-
         except Exception as e:
             raise RuntimeError(f"Probability prediction failed: {str(e)}") from e
 

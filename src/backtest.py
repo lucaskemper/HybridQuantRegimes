@@ -122,13 +122,18 @@ class BacktestEngine:
                     weights = weights.reindex(self._assets, fill_value=0)
                 else:
                     weights = pd.Series(weights, index=self._assets)
+                # Print weights for last 10 days
+                if self.signals.index.get_loc(date) >= len(self.signals.index) - 10:
+                    print(f"[DIAGNOSTIC] _get_positions (custom) {date}: weights =\n{weights}")
                 return self._apply_constraints(weights)
             except Exception as e:
                 logger.warning(f"Custom position function failed at {date}: {e}. Using default sizing.")
         
         # Calculate position sizes based on method
         weights = self._calculate_position_sizes(signals, date, context)
-        
+        # Print weights for last 10 days
+        if self.signals.index.get_loc(date) >= len(self.signals.index) - 10:
+            print(f"[DIAGNOSTIC] _get_positions {date}: weights =\n{weights}")
         return self._apply_constraints(weights)
     
     def _calculate_position_sizes(self, signals: pd.Series, date: pd.Timestamp, context: Dict) -> pd.Series:
@@ -222,7 +227,7 @@ class BacktestEngine:
             else:
                 confidence = pd.Series(0.5, index=self._assets)
         # Use higher confidence floor
-        confidence = confidence.clip(0.7, 1.0)  # Minimum 70% confidence
+        confidence = confidence.clip(0.2, 1.0)  # Minimum 20% confidence
         # Calculate base weights
         if signals.abs().sum() == 0:
             return pd.Series(0, index=self._assets)
@@ -386,8 +391,8 @@ class BacktestEngine:
                     portfolio_value -= transaction_cost
                     
                     # Count trades
-                    trades = ((new_weights - prev_weights).abs() > self.min_trade_size).sum()
-                    total_trades += trades
+                    trades_count = ((new_weights - prev_weights).abs() > self.min_trade_size).sum()
+                    total_trades += trades_count
                 
                 prev_weights = new_weights.copy()
                 
@@ -415,6 +420,10 @@ class BacktestEngine:
             # Update peak for drawdown calculation
             peak_value = max(peak_value, portfolio_value)
             
+            # Print drawdown for debugging
+            current_drawdown = (portfolio_value - peak_value) / peak_value if peak_value != 0 else 0
+            print(f"[DIAGNOSTIC] {date}: Portfolio Value={portfolio_value:.2f}, Peak={peak_value:.2f}, Drawdown={current_drawdown:.4%}")
+            
             # Risk management checks
             if not stop_triggered:
                 stop_triggered, stop_reason = self._check_risk_management(
@@ -438,7 +447,30 @@ class BacktestEngine:
         print("\n[DIAGNOSTIC] Trades head:\n", trades.head(20))
         print("\n[DIAGNOSTIC] Equity curve head:\n", equity_curve.head(20))
         print("\n[DIAGNOSTIC] Daily returns head:\n", daily_returns.head(20))
-        
+
+        # Additional diagnostics: compare total_trades to trades DataFrame
+        trades_nonzero = (trades.abs() > self.min_trade_size).sum().sum()
+        print(f"\n[SUMMARY DEBUG] total_trades (counted at rebalance): {total_trades}")
+        print(f"[SUMMARY DEBUG] Sum of nonzero trades in trades DataFrame: {trades_nonzero}")
+
+        # === NEW DIAGNOSTICS FOR EARLY STOPPING AND ALIGNMENT ===
+        # Print last nonzero positions and trades
+        print("\n[DIAGNOSTIC] Last nonzero positions:\n", positions[(positions != 0).any(axis=1)].tail(10))
+        print("\n[DIAGNOSTIC] Last nonzero trades:\n", trades[(trades != 0).any(axis=1)].tail(10))
+        # Print indices
+        print("\n[DIAGNOSTIC] Positions index tail:", positions.index[-10:])
+        print("[DIAGNOSTIC] Trades index tail:", trades.index[-10:])
+        print("[DIAGNOSTIC] Equity curve index tail:", equity_curve.index[-10:])
+        print("[DIAGNOSTIC] Returns index tail:", self.returns.index[-10:])
+        print("[DIAGNOSTIC] Signals index tail:", self.signals.index[-10:])
+        # Print stop reason and date if early stopping
+        if stop_triggered:
+            print(f"[DIAGNOSTIC] Early stopping triggered at {date} due to: {stop_reason}")
+        # Print last nonzero signals if available
+        if hasattr(self, 'signals') and isinstance(self.signals, pd.DataFrame):
+            print("\n[DIAGNOSTIC] Last nonzero signals:\n", self.signals[(self.signals != 0).any(axis=1)].tail(10))
+        # === END NEW DIAGNOSTICS ===
+
         # Calculate performance metrics
         metrics = self._calculate_metrics(equity_curve, daily_returns)
         
@@ -455,6 +487,7 @@ class BacktestEngine:
             'positions': positions,
             'trades': trades,
             'daily_returns': daily_returns,
+            'returns': daily_returns,
             'final_value': portfolio_value,
             'metrics': metrics,
             'stop_reason': stop_reason,

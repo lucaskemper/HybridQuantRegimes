@@ -113,9 +113,12 @@ class RegimeDetectionPipeline:
         self.portfolio_config = PortfolioConfig(**cfg.get('portfolio', {}))
         # Deep Learning Config
         dl_cfg = cfg.get('deep_learning', {})
-        self.deep_learning_config = DeepLearningConfig(**dl_cfg)
-        # Regime Config
         regime_cfg = cfg.get('regime', {})
+        # Ensure n_regimes is consistent between regime and deep learning config
+        n_regimes = regime_cfg.get('n_regimes', dl_cfg.get('n_regimes', 3))
+        dl_cfg['n_regimes'] = n_regimes
+        regime_cfg['n_regimes'] = n_regimes
+        self.deep_learning_config = DeepLearningConfig(**dl_cfg)
         regime_cfg['deep_learning_config'] = self.deep_learning_config if regime_cfg.get('use_deep_learning', False) else None
         self.regime_config = RegimeConfig(**regime_cfg)
         # Risk Config
@@ -141,7 +144,9 @@ class RegimeDetectionPipeline:
             # Display data summary
             returns = self.market_data['returns']
             prices = self.market_data['prices']
-            
+            # Export returns to CSV for diagnostics
+            returns.to_csv('results/returns.csv')
+            logger.info(f"Exported returns to results/returns.csv for diagnostics.")
             logger.info(f"Loaded data for {len(returns.columns)} assets")
             logger.info(f"Date range: {returns.index[0]} to {returns.index[-1]}")
             logger.info(f"Total observations: {len(returns)}")
@@ -184,32 +189,61 @@ class RegimeDetectionPipeline:
             portfolio_returns = returns.mean(axis=1)
             macro_data = self.market_data.get('macro', {})
             portfolio_features = get_portfolio_features_with_macro(portfolio_returns, macro_data)
-            # Diagnostics for shape/type issues
-            print("portfolio_returns type:", type(portfolio_returns))
-            print("portfolio_returns shape:", getattr(portfolio_returns, 'shape', None))
-            print("portfolio_returns columns (if DataFrame):", getattr(portfolio_returns, 'columns', None))
-            print("portfolio_features['returns'] type:", type(portfolio_features['returns']))
-            print("portfolio_features['returns'] shape:", getattr(portfolio_features['returns'], 'shape', None))
-            # Force conversion to Series if needed
+            # --- FIX 1: Force Series for returns and features ---
             if isinstance(portfolio_returns, pd.DataFrame):
-                portfolio_returns = portfolio_returns.iloc[:, 0]
+                portfolio_returns = portfolio_returns.squeeze()
             if isinstance(portfolio_features['returns'], pd.DataFrame):
-                portfolio_features['returns'] = portfolio_features['returns'].iloc[:, 0]
-            print('DEBUG: Available portfolio features:', portfolio_features.columns.tolist())
+                portfolio_features['returns'] = portfolio_features['returns'].squeeze()
+            # --- FIX 2: Drop NaNs only in regime features ---
+            portfolio_features = portfolio_features.dropna(subset=self.regime_config.features)
+            valid_idx = portfolio_features.index.intersection(portfolio_returns.dropna().index)
+            portfolio_features = portfolio_features.loc[valid_idx]
+            portfolio_returns = portfolio_returns.loc[valid_idx]
+            # --- FIX 5: Diagnostic print statements ---
+            print("portfolio_features shape:", portfolio_features.shape)
+            print("portfolio_returns shape:", portfolio_returns.shape)
+            print("portfolio_returns type:", type(portfolio_returns))
+            print("portfolio_returns first few:", portfolio_returns.head())
+            print("portfolio_features['returns'] dtype:", portfolio_features['returns'].dtype)
+            # --- FIX 3: Portfolio-level regime detection (explicit comment) ---
+            # NOTE: Using portfolio-level returns for regime detection. For asset-level, use returns.iloc[:, 0] or similar.
             regime_detector = MarketRegimeDetector(self.regime_config)
             logger.info("Running HMM + LSTM hybrid regime detection...")
+            # Align features and returns to the intersection of valid (non-NaN) indices
+            # (already done above)
             regimes = regime_detector.fit_predict(portfolio_features, portfolio_returns)
-            regime_stats = regime_detector.get_regime_stats(portfolio_features['returns'], regimes)
-            validation = regime_detector.validate_model(portfolio_features, regimes)
+            # --- Map generic regime labels to friendly names for reporting/stats ---
+            friendly_map = {'regime_0': 'Low Vol', 'regime_1': 'Medium Vol', 'regime_2': 'High Vol'}
+            regimes_named = regimes.replace(friendly_map)
+            # Use regimes_named for all statistics, reporting, and plotting
+            # Align regimes and returns indices robustly
+            common_idx = regimes_named.index.intersection(portfolio_features['returns'].index)
+            print('Regimes index:', regimes_named.index)
+            print('Returns index:', portfolio_features['returns'].index)
+            print('Common index length:', len(common_idx))
+            if len(common_idx) == 0:
+                print('[WARNING] No common index between regimes and returns. Falling back to reindex.')
+                aligned_returns = portfolio_features['returns'].reindex(regimes_named.index)
+                regimes_named = regimes_named.reindex(aligned_returns.index)
+            else:
+                regimes_named = regimes_named.loc[common_idx]
+                aligned_returns = portfolio_features['returns'].loc[common_idx]
+            print('First 10 regimes:', regimes_named.head(10))
+            print('First 10 returns:', aligned_returns.head(10))
+            # --- Align all downstream stats to regimes_named ---
+            ensemble_probabilities = regime_detector.get_ensemble_probabilities(portfolio_features, portfolio_returns)
+            regime_stats = regime_detector.get_regime_stats(aligned_returns, regimes_named)
+            validation = regime_detector.validate_model(portfolio_features, regimes_named)
             transition_matrix = regime_detector.get_transition_matrix()
             regime_results = {
-                'regimes': regimes,
+                'regimes': regimes_named,
                 'regime_stats': regime_stats,
                 'validation': validation,
                 'transition_matrix': transition_matrix,
-                'detector': regime_detector
+                'detector': regime_detector,
+                'ensemble_probabilities': ensemble_probabilities
             }
-            logger.info(f"Detected regimes: {regimes.value_counts().sort_index()}")
+            logger.info(f"Detected regimes: {regimes_named.value_counts().sort_index()}")
             logger.info(f"Model AIC: {validation['aic']:.2f}")
             logger.info(f"Model BIC: {validation['bic']:.2f}")
             logger.info(f"Regime persistence: {validation['regime_persistence']:.3f}")
@@ -223,7 +257,7 @@ class RegimeDetectionPipeline:
             # --- Statistical Validation ---
             logger.info("\nPerforming statistical significance testing...")
             print('DEBUG: Features passed to validate_model_statistically:', portfolio_features.columns.tolist())
-            stat_validation = regime_detector.validate_model_statistically(portfolio_features, regimes)
+            stat_validation = regime_detector.validate_model_statistically(portfolio_features, regimes_named)
             logger.info(f"Statistical significance (cross-validation): {stat_validation.get('statistical_significance', False)}")
             self.results['statistical_validation'] = stat_validation
             # --- Benchmark Comparison ---
@@ -242,53 +276,48 @@ class RegimeDetectionPipeline:
             logger.error(f"Error in regime detection: {str(e)}")
             raise
     
-    def generate_trading_signals(self) -> pd.DataFrame:
-        """Generate regime-aware trading signals"""
+    def generate_trading_signals(self, ablation_flags: dict = None) -> pd.DataFrame:
+        """Generate regime-aware trading signals, with ablation flags for each transformation step."""
         logger.info("=" * 60)
         logger.info("STEP 3: SIGNAL GENERATION")
         logger.info("=" * 60)
-        
         try:
-            # Initialize signal generator with regime detector
             regime_detector = self.results['regimes']['detector']
-            
+            ablation_flags = ablation_flags or {}
+            # Expose all ablation flags for easy experimentation
             signal_generator = SignalGenerator(
                 lookback_fast=10,
                 lookback_slow=21,
                 normalize=False,
                 use_regime=True,
                 regime_detector=regime_detector,
-                scaler_k=3.0,                # More aggressive scaling
-                scaling_method='clip',       # Use 'clip' instead of 'tanh'
-                vol_normalize=False          # Disable volatility normalization
+                scaler_k=3.0,
+                scaling_method='tanh',
+                vol_normalize=False,
+                ablate_zscore=ablation_flags.get('ablate_zscore', True),
+                ablate_tanh=ablation_flags.get('ablate_tanh', True),
+                ablate_vol_normalize=ablation_flags.get('ablate_vol_normalize', True),
+                ablate_threshold=ablation_flags.get('ablate_threshold', True),
+                ablate_regime_logic=ablation_flags.get('ablate_regime_logic', True),
+                risk_feedback=ablation_flags.get('risk_feedback', False),
+                regime_logic_diagnostic=ablation_flags.get('regime_logic_diagnostic', False)
             )
-            print("SignalGenerator config:", signal_generator.scaler_k, signal_generator.scaling_method, signal_generator.vol_normalize)
-            
-            # Generate signals
+            print("SignalGenerator config:", signal_generator.__dict__)
             logger.info("Generating regime-aware trading signals...")
             signals = signal_generator.generate_signals(self.market_data)
-            
-            # Signal statistics
             logger.info(f"Generated signals for {len(signals.columns)} assets")
             logger.info(f"Signal range: [{signals.min().min():.2f}, {signals.max().max():.2f}]")
             logger.info(f"Non-zero signals: {(signals != 0).sum().sum()} / {signals.size}")
-            
-            # Signal correlation with returns (1-day forward)
             returns = self.market_data['returns']
             forward_returns = returns.shift(-1)
-            
             signal_correlations = []
             for asset in signals.columns:
                 if asset in forward_returns.columns:
                     corr = signals[asset].corr(forward_returns[asset])
                     signal_correlations.append(corr)
-            
             logger.info(f"Average signal-return correlation: {np.mean(signal_correlations):.3f}")
-            
             self.results['signals'] = signals
-            # --- DEBUG: Signal Diagnostics ---
             debug_signals(signals, returns)
-            # --- TEST: Signal Quality ---
             diagnostics = self.test_signal_quality()
             return signals
         except Exception as e:
@@ -318,18 +347,26 @@ class RegimeDetectionPipeline:
                 columns=returns.columns
             )
             
+            # --- DIAGNOSTICS: Signal and Confidence ---
+            print("Signals nonzero count:", (signals != 0).sum().sum())
+            print("Signals min/max:", signals.min().min(), signals.max().max())
+            print("Regime confidence unique values:", confidence_series.unique())
+            print("Regime confidence threshold:", 0.4)
+            print("First 20 regime assignments (numeric):", numeric_regimes.head(20).to_list())
+            print("First 20 regime confidence values:", confidence_series.head(20).to_list())
+
             # Initialize backtest engine
             backtest_engine = BacktestEngine(
                 returns=returns,
                 signals=signals,
                 initial_cash=100000,
-                transaction_cost=0.001,
+                transaction_cost=0.0,  # Set to zero for testing
                 position_sizing='regime_confidence',
                 regime_confidence=regime_confidence,
-                confidence_threshold=0.8,  # Increase threshold to be more selective
-                max_position_size=1.0,   # Increase max position for debugging
-                base_position_size=0.5,   # Reduce from 2.0 to 0.5
-                rebalance_freq='D',  # Change from 'M' to 'D' for daily rebalancing
+                confidence_threshold=0.4,  # Lowered from 0.8 to 0.4
+                max_position_size=1.0,   # Keep as is
+                base_position_size=1.0,   # Increase from 0.5 to 1.0
+                rebalance_freq='D',  # Daily rebalancing for short-term signals
                 stop_loss=self.risk_config.stop_loss,
                 take_profit=self.risk_config.take_profit,
                 max_drawdown=self.risk_config.max_drawdown_limit,
@@ -337,6 +374,8 @@ class RegimeDetectionPipeline:
                 min_trade_size=1e-6,  # Lower min trade size for debugging
                 walk_forward_window=self.walk_forward_window,
                 walk_forward_step=self.walk_forward_step
+                ,slippage=0.0,  # Set to zero for testing
+                leverage=2.0  # <--- INCREASED LEVERAGE
             )
             
             # Diagnostic: print first 20 rows of signals before backtest
@@ -382,6 +421,11 @@ class RegimeDetectionPipeline:
             if portfolio_returns is not None:
                 debug_risk_metrics(portfolio_returns)
             debug_positions(backtest_results)
+
+            # Print average portfolio exposure
+            positions = backtest_results['positions']
+            avg_exposure = positions.abs().sum(axis=1).mean()
+            print(f'Average portfolio exposure: {avg_exposure:.2f}')
 
             return backtest_results
             
@@ -856,6 +900,8 @@ class RegimeDetectionPipeline:
             
             # Print key results
             self.print_final_summary()
+            # Print technical regime detection report
+            self.print_regime_detection_report()
             
         except Exception as e:
             logger.error(f"❌ Pipeline failed: {str(e)}")
@@ -898,6 +944,55 @@ class RegimeDetectionPipeline:
         print("\n".join(summary_lines))
         # Also log as before
         for line in summary_lines:
+            logger.info(line)
+
+    def print_regime_detection_report(self):
+        """Print a precise and technical regime detection result report"""
+        if 'regimes' not in self.results:
+            print("No regime detection results available.")
+            logger.info("No regime detection results available.")
+            return
+        regimes = self.results['regimes']['regimes']
+        regime_stats = self.results['regimes'].get('regime_stats', {})
+        validation = self.results['regimes'].get('validation', {})
+        transition_matrix = self.results['regimes'].get('transition_matrix', None)
+        stat_validation = self.results.get('statistical_validation', {})
+        
+        lines = []
+        lines.append("\n================= REGIME DETECTION TECHNICAL REPORT =================")
+        lines.append(f"Number of regimes detected: {len(regimes.unique())}")
+        lines.append(f"Regime distribution:")
+        for regime, count in regimes.value_counts().sort_index().items():
+            lines.append(f"  {regime}: {count} ({count/len(regimes):.2%})")
+        lines.append("")
+        lines.append("Regime statistics:")
+        for regime, stats in regime_stats.items():
+            lines.append(f"  {regime}:")
+            lines.append(f"    Mean Return: {stats['mean_return']:.4%}")
+            lines.append(f"    Volatility: {stats['volatility']:.4%}")
+            lines.append(f"    Frequency: {stats['frequency']:.4%}")
+            lines.append(f"    Sharpe: {stats['sharpe']:.4f}")
+        lines.append("")
+        lines.append(f"Model Validation Metrics:")
+        lines.append(f"  AIC: {validation.get('aic', 0):.2f}")
+        lines.append(f"  BIC: {validation.get('bic', 0):.2f}")
+        lines.append(f"  Regime persistence: {validation.get('regime_persistence', 0):.4f}")
+        lines.append("")
+        if transition_matrix is not None:
+            lines.append("Transition Matrix:")
+            tm = transition_matrix.round(3)
+            tm_str = tm.to_string()
+            lines.append(tm_str)
+            lines.append("")
+        if stat_validation:
+            lines.append("Statistical Validation:")
+            for k, v in stat_validation.items():
+                lines.append(f"  {k}: {v}")
+            lines.append("")
+        lines.append("======================================================================\n")
+        # Print to terminal and log
+        for line in lines:
+            print(line)
             logger.info(line)
 
     def validate_risk_inputs(self, returns):
@@ -943,18 +1038,14 @@ class RegimeDetectionPipeline:
 def main():
     """Main execution function"""
     try:
-        # Run normal pipeline only (no placebo)
         logger.info("\n=== RUNNING PIPELINE ===")
         pipeline = RegimeDetectionPipeline(walk_forward_window=252, walk_forward_step=63)
         pipeline.run_complete_pipeline()
-        logger.info("\n=== PIPELINE RESULTS ===")
-        pipeline.print_final_summary()
     except KeyboardInterrupt:
         logger.info("\n⚠️  Pipeline interrupted by user")
     except Exception as e:
         logger.error(f"\n❌ Pipeline failed with error: {str(e)}")
         raise
-
 
 if __name__ == "__main__":
     main()

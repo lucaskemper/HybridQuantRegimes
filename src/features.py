@@ -98,5 +98,35 @@ def calculate_enhanced_features(returns: pd.Series, macro_data: Optional[Dict] =
         features["equipment_vs_design_ratio"] = calculate_equipment_design_ratio(returns).values
     features["skewness"] = returns.rolling(15).skew().values
     features["kurtosis"] = returns.rolling(15).kurt().values
+
+    # --- New Feature Placeholders ---
+    # Cross-asset flows (e.g., credit spreads, risk parity flows)
+    features["credit_spread"] = 0.0  # TODO: Replace with real data
+    features["risk_parity_flow"] = 0.0  # TODO: Replace with real data
+    # Relative strength between semis and tech indexes
+    features["semis_vs_tech_strength"] = 0.0  # TODO: Replace with real data
+    # Sector ETF flows or volume anomalies
+    features["sector_etf_flow"] = 0.0  # TODO: Replace with real data
+    features["volume_anomaly"] = 0.0  # TODO: Replace with real data
+    # Short interest, implied volatility skew
+    features["short_interest"] = 0.0  # TODO: Replace with real data
+    features["implied_vol_skew"] = 0.0  # TODO: Replace with real data
+    # News-based sentiment (LLM-based scoring)
+    features["news_sentiment"] = 0.0  # TODO: Replace with real data
+    # Cross-sectional momentum ranking (placeholder, needs all tickers)
+    features["momentum_rank"] = 0.0  # TODO: Replace with real cross-sectional momentum rank
+    # NVDA/AMD dispersion (placeholder)
+    features["nvda_amd_dispersion"] = 0.0  # TODO: Replace with real NVDA/AMD spread
+    # ETF volume surge (placeholder)
+    features["etf_volume_surge"] = 0.0  # TODO: Replace with real ETF volume surge
+    # VIX/skew/IV percentile (placeholder)
+    features["vix_percentile"] = 0.0  # TODO: Replace with real VIX percentile
+    features["skew_percentile"] = 0.0  # TODO: Replace with real skew percentile
+    features["iv_percentile"] = 0.0  # TODO: Replace with real IV percentile
+    # Yield curve inversion (placeholder)
+    features["yield_curve_inversion"] = 0.0  # TODO: Replace with real yield curve inversion
+    # News-LLM sentiment (placeholder)
+    features["news_llm_sentiment"] = 0.0  # TODO: Replace with real LLM sentiment
+
     features = features.replace([np.inf, -np.inf], np.nan).fillna(0)
     return features 

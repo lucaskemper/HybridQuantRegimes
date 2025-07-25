@@ -298,6 +298,12 @@ class DataLoader:
             df['williams_r'] = calculate_williams_r(r)
             # Semiconductor PMI
             df['semiconductor_pmi'] = calculate_semiconductor_pmi(r)
+            # Bollinger position (20d)
+            sma = r.rolling(20).mean()
+            std = r.rolling(20).std()
+            upper = sma + (2 * std)
+            lower = sma - (2 * std)
+            df['bollinger_position'] = (r - lower) / (upper - lower)
             # Add macro indicators if available
             if macro_data:
                 for macro_ticker, macro_df in macro_data.items():
@@ -327,6 +333,70 @@ class DataLoader:
                     df['term_structure_slope'] = 0
             else:
                 df['term_structure_slope'] = 0
+            # --- New Features: Cross-sectional and Macro ---
+            # Cross-sectional momentum ranking (across all tickers)
+            try:
+                all_mom = {t: returns[t].rolling(window=20).mean() for t in returns.columns}
+                mom_df = pd.DataFrame(all_mom)
+                df['momentum_rank'] = mom_df.rank(axis=1, pct=True)[ticker]
+            except Exception:
+                df['momentum_rank'] = 0.0
+            # NVDA/AMD dispersion (if both present)
+            if 'NVDA' in returns.columns and 'AMD' in returns.columns:
+                df['nvda_amd_dispersion'] = returns['NVDA'] - returns['AMD']
+            else:
+                df['nvda_amd_dispersion'] = 0.0
+            # ETF volume surge (if volume available)
+            try:
+                if 'Volume' in returns.columns:
+                    vol = returns['Volume']
+                else:
+                    vol = None
+                if vol is not None:
+                    df['etf_volume_surge'] = (vol - vol.rolling(20).mean()) / (vol.rolling(20).std() + 1e-6)
+                else:
+                    df['etf_volume_surge'] = 0.0
+            except Exception:
+                df['etf_volume_surge'] = 0.0
+            # VIX/skew/IV percentile (from macro_data)
+            if '^VIX' in macro_data:
+                vix = macro_data['^VIX']['Close'].reindex(df.index).fillna(method='ffill')
+                df['vix_percentile'] = vix.rank(pct=True)
+            else:
+                df['vix_percentile'] = 0.0
+            # Skew/IV: placeholder (real data requires options)
+            df['skew_percentile'] = 0.0
+            df['iv_percentile'] = 0.0
+            # Yield curve inversion: TNX < 2Y (not available, so use TNX < TYX)
+            if '^TNX' in macro_data and '^TYX' in macro_data:
+                tnx = macro_data['^TNX']['Close'].reindex(df.index).fillna(method='ffill')
+                tyx = macro_data['^TYX']['Close'].reindex(df.index).fillna(method='ffill')
+                df['yield_curve_inversion'] = (tnx < tyx).astype(float)
+            else:
+                df['yield_curve_inversion'] = 0.0
+            # News-LLM sentiment: placeholder (real data requires external source)
+            df['news_llm_sentiment'] = 0.0
+            # --- New Engineered Features ---
+            # 1. Rolling beta to index (if index returns available)
+            if 'SPY' in returns.columns and ticker != 'SPY':
+                # 20-day rolling beta to SPY
+                cov = r.rolling(20).cov(returns['SPY'])
+                var = returns['SPY'].rolling(20).var()
+                df['beta_to_spy'] = cov / (var + 1e-6)
+            else:
+                df['beta_to_spy'] = 0.0
+            # 2. Volatility-of-volatility (20d rolling std of realized_volatility)
+            df['vol_of_vol'] = df['realized_volatility'].rolling(20).std()
+            # 3. Cross-asset spreads (NVDA vs AMD, sector ETF vs index)
+            if ticker == 'NVDA' and 'AMD' in returns.columns:
+                df['nvda_amd_spread'] = r - returns['AMD']
+            else:
+                df['nvda_amd_spread'] = 0.0
+            # Example: sector ETF (e.g., SMH) vs index (SPY)
+            if ticker in ['SMH', 'SOXX'] and 'SPY' in returns.columns:
+                df['sector_spy_spread'] = r - returns['SPY']
+            else:
+                df['sector_spy_spread'] = 0.0
             # Clean and normalize if requested
             df = df.fillna(method='ffill').fillna(method='bfill').fillna(0)
             if normalize:
