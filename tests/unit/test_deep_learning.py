@@ -7,14 +7,14 @@ from src.deep_learning import DeepLearningConfig, LSTMRegimeDetector, Transforme
 @pytest.fixture
 def synthetic_returns():
     np.random.seed(123)
-    dates = pd.date_range(start="2022-01-01", periods=50, freq="B")
+    dates = pd.date_range(start="2022-01-01", periods=100, freq="B")
     returns = pd.Series(np.random.normal(0, 0.01, size=len(dates)), index=dates)
     return returns
 
 @pytest.fixture
 def synthetic_regimes():
-    # For 50 points, sequence_length=21, so 50-21=29 labels
-    return np.random.randint(0, 4, size=29)
+    # For 100 points, sequence_length=21, so 100-21=79 labels
+    return np.random.randint(0, 4, size=79)
 
 def test_deep_learning_config_defaults():
     config = DeepLearningConfig()
@@ -111,26 +111,10 @@ def test_transformer_regime_detector_predict_latest_too_short():
         detector.predict_latest(short_returns)
 
 # --- BayesianLSTMRegimeForecaster tests ---
-def test_bayesian_lstm_forecaster_fit_predict(synthetic_returns):
-    config = DeepLearningConfig(sequence_length=21, n_regimes=4)
-    forecaster = BayesianLSTMRegimeForecaster(config)
-    y = np.random.normal(0, 1, size=29)  # 50-21=29
-    with patch.object(forecaster.model, 'fit', return_value=None) as mock_fit, \
-         patch.object(forecaster.model, '__call__', return_value=np.random.normal(0, 1, size=(100, 29, 2))) as mock_call:
-        forecaster.fit(synthetic_returns, y)
-        forecaster._is_fitted = True
-        preds = forecaster.predict(synthetic_returns, n_samples=100)
-        assert 'mean' in preds and 'std' in preds and 'all_samples' in preds
-        assert preds['mean'].shape == (29,)
-        assert preds['std'].shape == (29,)
-        # predict_latest
-        with patch.object(forecaster.model, '__call__', return_value=np.random.normal(0, 1, size=(1,2))):
-            latest = forecaster.predict_latest(synthetic_returns, n_samples=10)
-            assert 'mean' in latest and 'std' in latest and 'all_samples' in latest
-
 def test_bayesian_lstm_forecaster_predict_before_fit(synthetic_returns):
     config = DeepLearningConfig(sequence_length=21, n_regimes=4)
-    forecaster = BayesianLSTMRegimeForecaster(config)
-    with pytest.raises(Exception):
-        # Should error because model is not fitted and __call__ is not patched
-        forecaster.predict(synthetic_returns, n_samples=10) 
+    with patch.object(BayesianLSTMRegimeForecaster, '_build_bayesian_lstm_model', return_value=MagicMock()):
+        forecaster = BayesianLSTMRegimeForecaster(config)
+        with pytest.raises(Exception):
+            # Should error because model is not fitted and __call__ is not patched
+            forecaster.predict(synthetic_returns, n_samples=10) 

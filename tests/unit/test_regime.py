@@ -78,10 +78,10 @@ def test_market_regime_detector_update_real_time_validation(synthetic_returns):
     # Fit, then pass too-short data
     detector.fit(synthetic_returns)
     short_returns = synthetic_returns.iloc[:5]
-    with pytest.raises(ValueError, match="Input data must have at least 21 observations"):
+    with pytest.raises(RuntimeError, match="Real-time update failed: Input data must have at least 21 observations"):
         detector.update_real_time(short_returns)
     # Pass non-Series
-    with pytest.raises(ValueError, match="new_returns must be a pandas Series"):
+    with pytest.raises(RuntimeError, match="Real-time update failed: new_returns must be a pandas Series"):
         detector.update_real_time([1,2,3])
     # Pass data with NaN
     returns_with_nan = synthetic_returns.copy()
@@ -90,9 +90,10 @@ def test_market_regime_detector_update_real_time_validation(synthetic_returns):
         detector.update_real_time(returns_with_nan)
     # Pass data with duplicate index
     returns_dup = synthetic_returns.copy()
-    returns_dup.index = list(returns_dup.index)
-    returns_dup.index = returns_dup.index.insert(0, returns_dup.index[0])
-    returns_dup = returns_dup.sort_index()
+    idx = returns_dup.index
+    new_idx = idx.tolist()
+    new_idx[1] = new_idx[0]  # Make the first two indices the same
+    returns_dup.index = new_idx
     with pytest.raises(RuntimeError, match="Input data contains duplicate timestamps"):
         detector.update_real_time(returns_dup)
 

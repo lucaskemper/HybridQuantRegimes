@@ -82,6 +82,8 @@ class MonteCarlo:
             block_size = getattr(self.config, 'block_size', 21)  # 1 month default
             # Precompute blocks
             n_blocks = len(log_returns) - block_size + 1
+            if n_blocks <= 0:
+                raise ValueError(f"Not enough data ({len(log_returns)}) for block size {block_size}. Reduce block_size or provide more data.")
             blocks = [log_returns.iloc[i:i+block_size].values for i in range(n_blocks)]
             # Simulate
             sim_paths = np.zeros((n_sims, n_days, n_assets))
@@ -140,6 +142,7 @@ class MonteCarlo:
                 "annualized_return": np.mean(ann_return),
                 "annualized_vol": np.mean(ann_vol),
                 "validation": self.validate_simulation(sim_price_paths, market_data),
+                "statistics": self._calculate_statistics(final_value, np.mean(sharpe)),
             }
 
         # --- Regime Switching ---
@@ -494,6 +497,19 @@ class MonteCarlo:
         }
         return analysis
 
+    def _to_serializable(self, obj):
+        import numpy as np
+        if isinstance(obj, dict):
+            return {k: self._to_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [self._to_serializable(v) for v in obj]
+        elif isinstance(obj, np.generic):
+            return obj.item()
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        else:
+            return obj
+
     def save_results(self, results: Dict, filepath: str) -> None:
         """
         Save simulation results to file.
@@ -512,7 +528,7 @@ class MonteCarlo:
                 "var_99": float(results["var_99"]),
                 "statistics": {
                     k: float(v) if isinstance(v, np.number) else v
-                    for k, v in results["statistics"].items()
+                    for k, v in results.get("statistics", {}).items()
                 },
                 "validation": results["validation"],
                 "analysis": self.analyze_results(results)
@@ -521,7 +537,7 @@ class MonteCarlo:
             # Save to file
             import json
             with open(filepath, 'w') as f:
-                json.dump(serializable_results, f, indent=4)
+                json.dump(self._to_serializable(serializable_results), f, indent=4)
             
             print(f"Results saved to {filepath}")
             
