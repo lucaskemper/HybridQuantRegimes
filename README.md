@@ -291,12 +291,6 @@ pytest --cov=src
 - **Plots**: Saved in `plots/` (e.g., equity curves, regime transitions, risk metrics).
 - **Logs**: Written to `regime_detection.log`.
 
-## References
-
-- Hamilton, J.D. (1989). A New Approach to the Economic Analysis of Nonstationary Time Series and the Business Cycle. *Econometrica*.
-- Fischer, T., & Krauss, C. (2018). Deep learning with long short-term memory networks for financial market predictions. *European Journal of Operational Research*.
-- McNeil, A.J., Frey, R., & Embrechts, P. (2015). *Quantitative Risk Management*.
-- See `latex/Hybrid Regime Detection in Semiconductor Markets_ A Machine Learning Approach to Dynamic Risk Management/` for full academic writeup and methodology.
 
 ## License
 
