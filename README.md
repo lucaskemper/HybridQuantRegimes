@@ -226,17 +226,7 @@ This will execute the full pipeline:
 - Monte Carlo simulation
 - Visualization and reporting (results saved in `results/` and `plots/`)
 
-### 2. Jupyter Notebook Demo
-
-A demo notebook is provided:
-
-```bash
-jupyter notebook ProjectDemo.ipynb
-```
-
-This notebook demonstrates step-by-step usage, including custom portfolio configuration, regime detection, and visualization.
-
-### 3. Customization
+### 2. Customization
 
 - **Portfolio**: Edit tickers, weights, and dates in `main.py` or the notebook.
 - **Model Parameters**: Adjust regime, LSTM, and risk configs in `main.py` or via config classes.
@@ -287,7 +277,7 @@ pytest --cov=src
 
 ## Results & Outputs
 
-- **Results**: Saved in `results/` and `output_conservative/`.
+- **Results**: Saved in `results/`.
 - **Plots**: Saved in `plots/` (e.g., equity curves, regime transitions, risk metrics).
 - **Logs**: Written to `regime_detection.log`.
 
