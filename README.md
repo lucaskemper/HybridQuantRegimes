@@ -78,16 +78,7 @@ Visualization/Reporting
   - LSTM model with configurable layers, attention, bidirectionality, batch normalization, dropout, and residual connections.
   - Parameters: `sequence_length`, `hidden_dims`, `epochs`, `learning_rate`, `dropout_rate`, `early_stopping_patience`, `learning_rate_schedule` (cosine annealing), etc.
   - Trained to predict regime labels from engineered features, optionally using HMM output as targets.
-
-- **Bayesian Model Averaging** – combines HMM and LSTM regime probabilities using entropy- or evidence-based weights:
-
-\[
-P_{\text{BMA}}(y \mid x)
-= w_{\text{HMM}}\;P_{\text{HMM}}(y \mid x)
-+ w_{\text{LSTM}}\;P_{\text{LSTM}}(y \mid x)
-\]
-
-- Weights adapt on the fly to each observation based on model confidence \
+  - Weights adapt on the fly to each observation based on model confidence \
   (low predictive‐entropy ⇢ higher weight, high log-evidence ⇢ higher weight).
 - **Real-time/Online Options:**
   - Alert thresholds, minimum confidence, update frequency, and regime history tracking for live applications.
