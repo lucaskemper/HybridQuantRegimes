@@ -80,7 +80,9 @@ Visualization/Reporting
   - Trained to predict regime labels from engineered features, optionally using HMM output as targets.
 - **Bayesian Model Averaging:**
   - Combines HMM and LSTM regime probabilities using entropy- or evidence-based weights:
-    - \( P_{BMA}(y|x) = w_{HMM} P_{HMM}(y|x) + w_{LSTM} P_{LSTM}(y|x) \)
+    - \[
+P_{BMA}(y \mid x) = w_{HMM}\,P_{HMM}(y \mid x) + w_{LSTM}\,P_{LSTM}(y \mid x)
+\]
   - Weights adapt based on model confidence (entropy/log-evidence).
 - **Real-time/Online Options:**
   - Alert thresholds, minimum confidence, update frequency, and regime history tracking for live applications.
