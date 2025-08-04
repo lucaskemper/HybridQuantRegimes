@@ -201,11 +201,6 @@ python main.py
 
 - This will run the full pipeline using the default configuration and cached demo datasets.
 - Results and plots will be saved in the `results/` and `plots/` directories.
-- For a step-by-step interactive demo, launch:
-
-```bash
-jupyter notebook ProjectDemo.ipynb
-```
 
 ## Usage
 
