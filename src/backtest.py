@@ -1,13 +1,13 @@
 import pandas as pd
 import numpy as np
-from typing import Optional, Callable, Dict, Any, Union
+from typing import Optional, Callable, Dict, Any, Union, List, Tuple
 import warnings
 from datetime import datetime
 import logging
 from scipy.special import softmax as scipy_softmax
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+from src.regime import MarketRegimeDetector, RegimeConfig
+
 logger = logging.getLogger(__name__)
 
 class BacktestEngine:
@@ -34,6 +34,9 @@ class BacktestEngine:
         walk_forward_step: Optional[int] = None,
         risk_management_func: Optional[Callable] = None,
         regime_confidence: Optional[pd.DataFrame] = None,
+        regime_config: Optional[RegimeConfig] = None,
+        regime_target: Optional[pd.Series] = None,
+        regime_confidence_mapping: Optional[Dict[int, float]] = None,
         base_position_size: float = 1.0,
         confidence_threshold: float = 0.5,
         min_trade_size: float = 1e-6,  # Restore to previous value
@@ -82,6 +85,19 @@ class BacktestEngine:
         self.min_trade_size = max(0, min_trade_size)
         self.max_position_size = np.clip(max_position_size, 0, 1)
         
+        # Regime detection support for walk-forward training
+        self.regime_config = regime_config
+        self._regime_target_series = None
+        if regime_target is not None:
+            self._regime_target_series = self._prepare_regime_series(regime_target, self.returns.index)
+        elif self.regime_config is not None:
+            self._regime_target_series = self._prepare_regime_series(self.returns.mean(axis=1), self.returns.index)
+        self._regime_confidence_mapping = self._build_regime_confidence_mapping(
+            regime_confidence_mapping, self.regime_config
+        )
+        self._walk_forward_regime_confidence: List[pd.DataFrame] = []
+        self._walk_forward_regime_models: List[MarketRegimeDetector] = []
+        
         # Internal state
         self._assets = list(common_cols)
         
@@ -98,6 +114,81 @@ class BacktestEngine:
         
         if regime_confidence is not None and not isinstance(regime_confidence, pd.DataFrame):
             raise ValueError("regime_confidence must be a pandas DataFrame or None")
+
+    def _prepare_regime_series(self, series: pd.Series, target_index: pd.Index) -> pd.Series:
+        """Align and sanitize regime target series."""
+        aligned = series.reindex(target_index)
+        if isinstance(aligned, pd.DataFrame):
+            aligned = aligned.squeeze()
+        aligned = aligned.astype(float)
+        aligned = aligned.replace([np.inf, -np.inf], np.nan)
+        # Use forward fill so the series reflects information available up to that point
+        aligned = aligned.ffill().fillna(0.0)
+        return aligned
+
+    def _build_regime_confidence_mapping(
+        self,
+        custom_mapping: Optional[Dict[int, float]],
+        config: Optional[RegimeConfig],
+    ) -> Dict[int, float]:
+        """Return a confidence mapping for integer regimes."""
+        if custom_mapping is not None:
+            return {int(k): float(np.clip(v, 0.0, 1.0)) for k, v in custom_mapping.items()}
+        if config is None:
+            return {}
+        n_regimes = max(1, config.n_regimes)
+        if n_regimes == 1:
+            return {0: 0.8}
+        high, low = 0.9, 0.1
+        step = (high - low) / (n_regimes - 1)
+        mapping = {i: float(np.clip(high - step * i, 0.0, 1.0)) for i in range(n_regimes)}
+        return mapping
+
+    def _train_regime_detector(self, train_series: pd.Series) -> Optional[MarketRegimeDetector]:
+        """Instantiate and fit a regime detector on the training slice."""
+        if self.regime_config is None:
+            return None
+        min_required = max(self.regime_config.min_size, self.regime_config.window_size, 10)
+        if len(train_series.dropna()) < min_required:
+            logger.warning(
+                "Skipping regime training due to insufficient training data (%d < %d).",
+                len(train_series.dropna()),
+                min_required,
+            )
+            return None
+        detector = MarketRegimeDetector(self.regime_config)
+        try:
+            detector.fit(train_series)
+            return detector
+        except Exception as exc:
+            logger.warning("Regime model training failed: %s", exc)
+            return None
+
+    def _make_regime_confidence(
+        self,
+        detector: MarketRegimeDetector,
+        train_series: pd.Series,
+        test_series: pd.Series,
+    ) -> pd.DataFrame:
+        """Use fitted detector to create a regime confidence frame for test dates."""
+        if detector is None or test_series.empty:
+            return pd.DataFrame(index=test_series.index, columns=self._assets, dtype=float)
+        history = 0
+        if self.regime_config is not None:
+            history = max(self.regime_config.window_size, self.regime_config.min_size, 1)
+        if history > 0 and len(train_series) > 0:
+            context_series = pd.concat([train_series.iloc[-history:], test_series])
+        else:
+            context_series = test_series
+        predictions = detector.predict(context_series, output_labels=False)
+        predictions = predictions.loc[test_series.index]
+        if not self._regime_confidence_mapping:
+            conf_values = pd.Series(1.0, index=predictions.index)
+        else:
+            conf_values = predictions.map(self._regime_confidence_mapping).fillna(0.5)
+        conf_matrix = np.repeat(conf_values.to_numpy()[:, None], len(self._assets), axis=1)
+        confidence = pd.DataFrame(conf_matrix, index=test_series.index, columns=self._assets)
+        return confidence
 
     def _get_positions(self, date: pd.Timestamp, context: Optional[Dict] = None) -> pd.Series:
         """Calculate position weights for given date"""
@@ -131,9 +222,9 @@ class BacktestEngine:
         
         # Calculate position sizes based on method
         weights = self._calculate_position_sizes(signals, date, context)
-        # Print weights for last 10 days
+        # Debug weights near the end of backtest
         if self.signals.index.get_loc(date) >= len(self.signals.index) - 10:
-            print(f"[DIAGNOSTIC] _get_positions {date}: weights =\n{weights}")
+            logger.debug("[DIAG] _get_positions %s weights=\n%s", date, weights)
         return self._apply_constraints(weights)
     
     def _calculate_position_sizes(self, signals: pd.Series, date: pd.Timestamp, context: Dict) -> pd.Series:
@@ -578,6 +669,9 @@ class BacktestEngine:
         all_positions = []
         all_trades = []
         all_daily_returns = []
+        all_regime_confidences = []
+        self._walk_forward_regime_confidence = []
+        self._walk_forward_regime_models = []
         
         for start_idx in range(0, n_dates - window, step):
             end_idx = start_idx + window
@@ -598,8 +692,34 @@ class BacktestEngine:
             test_returns = self.returns.loc[test_dates]
             test_signals = self.signals.loc[test_dates]
             
+            # Fit regime detector on training slice and generate confidence for test slice
+            dynamic_regime_conf = None
+            if self.regime_config is not None and self._regime_target_series is not None:
+                train_dates = common_dates[start_idx:end_idx]
+                train_series = self._regime_target_series.loc[train_dates]
+                test_series = self._regime_target_series.loc[test_dates]
+                detector = self._train_regime_detector(train_series)
+                if detector is not None:
+                    try:
+                        dynamic_regime_conf = self._make_regime_confidence(detector, train_series, test_series)
+                        self._walk_forward_regime_confidence.append(dynamic_regime_conf)
+                        self._walk_forward_regime_models.append(detector)
+                    except Exception as exc:
+                        logger.warning("Regime confidence generation failed: %s", exc)
+                        dynamic_regime_conf = None
+            elif self.regime_confidence is not None:
+                dynamic_regime_conf = self.regime_confidence.loc[test_dates].copy()
+            
+            original_regime_conf = self.regime_confidence
+            if dynamic_regime_conf is not None:
+                self.regime_confidence = dynamic_regime_conf
+            
             # Use initial cash for each period (not compound across periods)
-            result = self._run_backtest(test_returns, test_signals)
+            try:
+                result = self._run_backtest(test_returns, test_signals)
+            finally:
+                self.regime_confidence = original_regime_conf
+            
             results.append(result)
             
             # Collect results
@@ -607,6 +727,8 @@ class BacktestEngine:
             all_positions.append(result['positions'])
             all_trades.append(result['trades'])
             all_daily_returns.append(result['daily_returns'])
+            if dynamic_regime_conf is not None:
+                all_regime_confidences.append(dynamic_regime_conf)
         
         if not results:
             raise ValueError("No valid walk-forward periods found")
@@ -616,6 +738,7 @@ class BacktestEngine:
         combined_positions = pd.concat(all_positions)
         combined_trades = pd.concat(all_trades)
         combined_returns = pd.concat(all_daily_returns)
+        combined_regime_conf = pd.concat(all_regime_confidences) if all_regime_confidences else None
         
         # Calculate overall metrics
         overall_metrics = self._calculate_metrics(combined_equity, combined_returns)
@@ -628,7 +751,9 @@ class BacktestEngine:
             'final_value': combined_equity.iloc[-1],
             'metrics': overall_metrics,
             'walk_forward_results': results,
-            'n_periods': len(results)
+            'n_periods': len(results),
+            'walk_forward_regime_confidence': combined_regime_conf,
+            'walk_forward_regime_models': self._walk_forward_regime_models,
         }
     
     def _calculate_metrics(self, equity_curve: pd.Series, daily_returns: pd.Series) -> Dict[str, float]:
