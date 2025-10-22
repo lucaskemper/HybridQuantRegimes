@@ -1,4 +1,4 @@
-# HybridQuantRegimes (Note: Some changes made in code aren't yet reflected in the paper.) 
+# HybridQuantRegimes (Note: Some of the changes made in the code aren't yet reflected in the paper.) 
 
 ## Table of Contents
 - [Overview](#overview)
