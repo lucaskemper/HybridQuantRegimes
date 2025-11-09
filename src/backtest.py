@@ -10,6 +10,13 @@ from src.regime import MarketRegimeDetector, RegimeConfig
 
 logger = logging.getLogger(__name__)
 
+
+def _log_message(verbose: bool, level: int, message: str, *args, diagnostic: bool = True):
+    """Module-level helper to gate diagnostics based on the verbose flag."""
+    if diagnostic and not verbose:
+        return
+    logger.log(level, message, *args)
+
 class BacktestEngine:
     """
     Backtest engine for portfolio strategies. By default, short selling is enabled (allow_short=True).
@@ -41,7 +48,10 @@ class BacktestEngine:
         confidence_threshold: float = 0.5,
         min_trade_size: float = 1e-6,  # Restore to previous value
         max_position_size: float = 1.0,  # Increased for debugging
+        verbose: bool = False,
     ):
+        self.verbose = verbose
+
         # Input validation
         self._validate_inputs(returns, signals, regime_confidence)
         
@@ -59,7 +69,11 @@ class BacktestEngine:
             if len(common_regime_cols) > 0:
                 self.regime_confidence = regime_confidence[common_regime_cols].copy()
             else:
-                logger.warning("No common columns between returns and regime_confidence. Using single confidence value.")
+                self._log(
+                    logging.WARNING,
+                    "No common columns between returns and regime_confidence. Using single confidence value.",
+                    diagnostic=False,
+                )
                 self.regime_confidence = regime_confidence.copy()
         else:
             self.regime_confidence = None
@@ -100,6 +114,10 @@ class BacktestEngine:
         
         # Internal state
         self._assets = list(common_cols)
+    
+    def _log(self, level: int, message: str, *args, diagnostic: bool = True):
+        """Log helper that respects the verbose flag for diagnostics."""
+        _log_message(self.verbose, level, message, *args, diagnostic=diagnostic)
         
     def _validate_inputs(self, returns: pd.DataFrame, signals: pd.DataFrame, regime_confidence: Optional[pd.DataFrame]):
         """Validate input data"""
@@ -150,7 +168,8 @@ class BacktestEngine:
             return None
         min_required = max(self.regime_config.min_size, self.regime_config.window_size, 10)
         if len(train_series.dropna()) < min_required:
-            logger.warning(
+            self._log(
+                logging.WARNING,
                 "Skipping regime training due to insufficient training data (%d < %d).",
                 len(train_series.dropna()),
                 min_required,
@@ -161,7 +180,7 @@ class BacktestEngine:
             detector.fit(train_series)
             return detector
         except Exception as exc:
-            logger.warning("Regime model training failed: %s", exc)
+            self._log(logging.WARNING, "Regime model training failed: %s", exc)
             return None
 
     def _make_regime_confidence(
@@ -215,16 +234,27 @@ class BacktestEngine:
                     weights = pd.Series(weights, index=self._assets)
                 # Print weights for last 10 days
                 if self.signals.index.get_loc(date) >= len(self.signals.index) - 10:
-                    print(f"[DIAGNOSTIC] _get_positions (custom) {date}: weights =\n{weights}")
+                    self._log(
+                        logging.INFO,
+                        "[DIAGNOSTIC] _get_positions (custom) %s: weights =\n%s",
+                        date,
+                        weights,
+                    )
                 return self._apply_constraints(weights)
             except Exception as e:
-                logger.warning(f"Custom position function failed at {date}: {e}. Using default sizing.")
+                self._log(
+                    logging.WARNING,
+                    "Custom position function failed at %s: %s. Using default sizing.",
+                    date,
+                    e,
+                    diagnostic=False,
+                )
         
         # Calculate position sizes based on method
         weights = self._calculate_position_sizes(signals, date, context)
         # Debug weights near the end of backtest
         if self.signals.index.get_loc(date) >= len(self.signals.index) - 10:
-            logger.debug("[DIAG] _get_positions %s weights=\n%s", date, weights)
+            self._log(logging.DEBUG, "[DIAG] _get_positions %s weights=\n%s", date, weights)
         return self._apply_constraints(weights)
     
     def _calculate_position_sizes(self, signals: pd.Series, date: pd.Timestamp, context: Dict) -> pd.Series:
@@ -274,7 +304,13 @@ class BacktestEngine:
                 weights = self.position_sizing(signals, self.returns, date, context)
                 return pd.Series(weights, index=self._assets) if not isinstance(weights, pd.Series) else weights
             except Exception as e:
-                logger.warning(f"Custom position sizing failed at {date}: {e}. Using proportional sizing.")
+                self._log(
+                    logging.WARNING,
+                    "Custom position sizing failed at %s: %s. Using proportional sizing.",
+                    date,
+                    e,
+                    diagnostic=False,
+                )
                 return self._proportional_sizing(signals, date, context)
         else:
             return signals * self.leverage
@@ -457,7 +493,8 @@ class BacktestEngine:
                 'positions': positions.iloc[:i] if i > 0 else pd.DataFrame(columns=self._assets),
                 'portfolio_value': portfolio_value,
                 'date': date,
-                'peak_value': peak_value
+                'peak_value': peak_value,
+                'verbose': self.verbose,
             }
             
             # Check if we should rebalance
@@ -513,7 +550,14 @@ class BacktestEngine:
             
             # Print drawdown for debugging
             current_drawdown = (portfolio_value - peak_value) / peak_value if peak_value != 0 else 0
-            print(f"[DIAGNOSTIC] {date}: Portfolio Value={portfolio_value:.2f}, Peak={peak_value:.2f}, Drawdown={current_drawdown:.4%}")
+            self._log(
+                logging.INFO,
+                "[DIAGNOSTIC] %s: Portfolio Value=%.2f, Peak=%.2f, Drawdown=%.4f%%",
+                date,
+                portfolio_value,
+                peak_value,
+                current_drawdown * 100,
+            )
             
             # Risk management checks
             if not stop_triggered:
@@ -534,32 +578,53 @@ class BacktestEngine:
         trades = positions.diff().fillna(positions.iloc[0])
 
         # Diagnostics: print positions, trades, equity curve, daily returns
-        print("\n[DIAGNOSTIC] Positions head:\n", positions.head(20))
-        print("\n[DIAGNOSTIC] Trades head:\n", trades.head(20))
-        print("\n[DIAGNOSTIC] Equity curve head:\n", equity_curve.head(20))
-        print("\n[DIAGNOSTIC] Daily returns head:\n", daily_returns.head(20))
+        self._log(logging.INFO, "\n[DIAGNOSTIC] Positions head:\n%s", positions.head(20))
+        self._log(logging.INFO, "\n[DIAGNOSTIC] Trades head:\n%s", trades.head(20))
+        self._log(logging.INFO, "\n[DIAGNOSTIC] Equity curve head:\n%s", equity_curve.head(20))
+        self._log(logging.INFO, "\n[DIAGNOSTIC] Daily returns head:\n%s", daily_returns.head(20))
 
         # Additional diagnostics: compare total_trades to trades DataFrame
         trades_nonzero = (trades.abs() > self.min_trade_size).sum().sum()
-        print(f"\n[SUMMARY DEBUG] total_trades (counted at rebalance): {total_trades}")
-        print(f"[SUMMARY DEBUG] Sum of nonzero trades in trades DataFrame: {trades_nonzero}")
+        self._log(logging.INFO, "\n[SUMMARY DEBUG] total_trades (counted at rebalance): %s", total_trades)
+        self._log(
+            logging.INFO,
+            "[SUMMARY DEBUG] Sum of nonzero trades in trades DataFrame: %s",
+            trades_nonzero,
+        )
 
         # === NEW DIAGNOSTICS FOR EARLY STOPPING AND ALIGNMENT ===
         # Print last nonzero positions and trades
-        print("\n[DIAGNOSTIC] Last nonzero positions:\n", positions[(positions != 0).any(axis=1)].tail(10))
-        print("\n[DIAGNOSTIC] Last nonzero trades:\n", trades[(trades != 0).any(axis=1)].tail(10))
+        self._log(
+            logging.INFO,
+            "\n[DIAGNOSTIC] Last nonzero positions:\n%s",
+            positions[(positions != 0).any(axis=1)].tail(10),
+        )
+        self._log(
+            logging.INFO,
+            "\n[DIAGNOSTIC] Last nonzero trades:\n%s",
+            trades[(trades != 0).any(axis=1)].tail(10),
+        )
         # Print indices
-        print("\n[DIAGNOSTIC] Positions index tail:", positions.index[-10:])
-        print("[DIAGNOSTIC] Trades index tail:", trades.index[-10:])
-        print("[DIAGNOSTIC] Equity curve index tail:", equity_curve.index[-10:])
-        print("[DIAGNOSTIC] Returns index tail:", self.returns.index[-10:])
-        print("[DIAGNOSTIC] Signals index tail:", self.signals.index[-10:])
+        self._log(logging.INFO, "\n[DIAGNOSTIC] Positions index tail: %s", positions.index[-10:])
+        self._log(logging.INFO, "[DIAGNOSTIC] Trades index tail: %s", trades.index[-10:])
+        self._log(logging.INFO, "[DIAGNOSTIC] Equity curve index tail: %s", equity_curve.index[-10:])
+        self._log(logging.INFO, "[DIAGNOSTIC] Returns index tail: %s", self.returns.index[-10:])
+        self._log(logging.INFO, "[DIAGNOSTIC] Signals index tail: %s", self.signals.index[-10:])
         # Print stop reason and date if early stopping
         if stop_triggered:
-            print(f"[DIAGNOSTIC] Early stopping triggered at {date} due to: {stop_reason}")
+            self._log(
+                logging.INFO,
+                "[DIAGNOSTIC] Early stopping triggered at %s due to: %s",
+                date,
+                stop_reason,
+            )
         # Print last nonzero signals if available
         if hasattr(self, 'signals') and isinstance(self.signals, pd.DataFrame):
-            print("\n[DIAGNOSTIC] Last nonzero signals:\n", self.signals[(self.signals != 0).any(axis=1)].tail(10))
+            self._log(
+                logging.INFO,
+                "\n[DIAGNOSTIC] Last nonzero signals:\n%s",
+                self.signals[(self.signals != 0).any(axis=1)].tail(10),
+            )
         # === END NEW DIAGNOSTICS ===
 
         # Calculate performance metrics
@@ -647,7 +712,13 @@ class BacktestEngine:
                 if should_stop:
                     return True, f'custom_risk_management_{reason}'
             except Exception as e:
-                logger.warning(f"Custom risk management function failed at {date}: {e}")
+                self._log(
+                    logging.WARNING,
+                    "Custom risk management function failed at %s: %s",
+                    date,
+                    e,
+                    diagnostic=False,
+                )
         
         return False, None
     
@@ -686,7 +757,12 @@ class BacktestEngine:
             if len(test_dates) == 0:
                 break
             
-            logger.info(f"Walk-forward period: {test_dates[0].date()} to {test_dates[-1].date()}")
+            self._log(
+                logging.INFO,
+                "Walk-forward period: %s to %s",
+                test_dates[0].date(),
+                test_dates[-1].date(),
+            )
             
             # Run backtest on test period
             test_returns = self.returns.loc[test_dates]
@@ -705,7 +781,12 @@ class BacktestEngine:
                         self._walk_forward_regime_confidence.append(dynamic_regime_conf)
                         self._walk_forward_regime_models.append(detector)
                     except Exception as exc:
-                        logger.warning("Regime confidence generation failed: %s", exc)
+                        self._log(
+                            logging.WARNING,
+                            "Regime confidence generation failed: %s",
+                            exc,
+                            diagnostic=False,
+                        )
                         dynamic_regime_conf = None
             elif self.regime_confidence is not None:
                 dynamic_regime_conf = self.regime_confidence.loc[test_dates].copy()
@@ -860,13 +941,13 @@ class BacktestEngine:
         """Debug position sizing calculations"""
         if self.regime_confidence is not None and date in self.regime_confidence.index:
             confidence = self.regime_confidence.loc[date]
-            print(f"Date {date}:")
-            print(f"  Raw signals: {signals.to_dict()}")
-            print(f"  Confidence: {confidence}")
-            print(f"  Base position size: {self.base_position_size}")
+            self._log(logging.INFO, "Date %s:", date)
+            self._log(logging.INFO, "  Raw signals: %s", signals.to_dict())
+            self._log(logging.INFO, "  Confidence: %s", confidence)
+            self._log(logging.INFO, "  Base position size: %s", self.base_position_size)
             base_weights = signals / signals.abs().sum() if signals.abs().sum() > 0 else signals * 0
             adjusted_weights = base_weights * confidence * self.base_position_size * self.leverage
-            print(f"  Final weights: {adjusted_weights.to_dict()}")
+            self._log(logging.INFO, "  Final weights: %s", adjusted_weights.to_dict())
 
 
 # Example usage and custom functions
@@ -903,7 +984,8 @@ def risk_parity_position_sizing(signals: pd.Series, returns: pd.DataFrame, date:
             return signals * 0.1
             
     except Exception as e:
-        logger.warning(f"Risk parity sizing failed at {date}: {e}")
+        verbose = bool(context.get('verbose', False)) if isinstance(context, dict) else False
+        _log_message(verbose, logging.WARNING, "Risk parity sizing failed at %s: %s", date, e)
         return signals * 0.1
 
 

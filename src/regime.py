@@ -38,6 +38,9 @@ class RegimeConfig:
     update_frequency: str = '1D'  # Pandas frequency string for updates
     history_size: int = 100  # Number of historical regime entries to maintain
     min_regime_size: int = 21  # Added to support config
+    fusion_mode: str = "entropy"  # "entropy" | "poe"
+    poe_alpha: float = 1.0
+    poe_beta: float = 1.0
     
     def __post_init__(self):
         if self.features is None:
@@ -104,6 +107,7 @@ class MarketRegimeDetector:
         
         # Performance monitoring
         self._performance = PerformanceMetrics()
+        self._last_fusion_weights = None
         
         logger.info(f"Initialized MarketRegimeDetector with {config.n_regimes} regimes")
         
@@ -319,23 +323,10 @@ class MarketRegimeDetector:
                     raise ValueError("Not enough data after trimming for LSTM sequence length.")
                 # Always require features to be a DataFrame for hybrid fusion
                 trimmed_features = features.loc[trimmed_returns.index]
-                # Define generic regime labels for fusion
-                n_regimes = len(self.regime_labels)
-                generic_labels = [f"regime_{i}" for i in range(n_regimes)]
                 # Get LSTM probabilities (index will match trimmed_returns)
                 lstm_probs = self.lstm_model.predict_proba(trimmed_returns)
-                # Ensure both LSTM and HMM columns are set to generic_labels for fusion
-                lstm_probs.columns = generic_labels
+                lstm_probs = self._standardize_probability_columns(lstm_probs, "LSTM probabilities (fit_predict)")
                 hmm_probs_full = self.predict_proba(trimmed_features)
-                # Ensure both LSTM and HMM columns are set to generic_labels for fusion
-                hmm_probs_full.columns = generic_labels
-                # Check that regime labels match exactly
-                if list(lstm_probs.columns) != generic_labels:
-                    print(f"[FUSION ERROR] LSTM columns: {lstm_probs.columns}, generic_labels: {generic_labels}")
-                    raise ValueError(f"LSTM regime columns do not match generic regime labels!")
-                if list(hmm_probs_full.columns) != generic_labels:
-                    print(f"[FUSION ERROR] HMM columns: {hmm_probs_full.columns}, generic_labels: {generic_labels}")
-                    raise ValueError(f"HMM regime columns do not match generic regime labels!")
                 # Robust intersection of indices
                 valid_idx = hmm_probs_full.index.intersection(lstm_probs.index)
                 hmm_probs = hmm_probs_full.loc[valid_idx]
@@ -353,9 +344,6 @@ class MarketRegimeDetector:
                     print('hmm_probs_full isnull sum:', hmm_probs_full.isnull().sum())
                     print('lstm_probs isnull sum:', lstm_probs.isnull().sum())
                     raise ValueError("No valid rows after robust intersection and filtering for hybrid regime fusion.")
-                if list(hmm_probs.columns) != generic_labels or list(lstm_probs.columns) != generic_labels:
-                    print(f"[FUSION ERROR] Columns mismatch after relabeling. hmm_probs: {hmm_probs.columns}, lstm_probs: {lstm_probs.columns}, generic_labels: {generic_labels}")
-                    raise ValueError("Regime columns do not match generic labels after relabeling!")
                 # Combine predictions
                 regimes = self._combine_predictions_bayesian(hmm_probs, lstm_probs, output_labels=output_labels)
                 return regimes
@@ -364,8 +352,10 @@ class MarketRegimeDetector:
                 print(f"Deep learning prediction failed: {str(e)}")
                 traceback.print_exc()
                 print("Falling back to HMM predictions")
+                self._last_fusion_weights = None
                 return hmm_regimes_labels
 
+        self._last_fusion_weights = None
         return hmm_regimes_labels
 
     def _validate_fusion_inputs(self, hmm_probs, lstm_probs):
@@ -381,6 +371,22 @@ class MarketRegimeDetector:
         if not set(hmm_probs.columns).intersection(set(lstm_probs.columns)):
             raise ValueError(f"No common columns: HMM {hmm_probs.columns}, LSTM {lstm_probs.columns}")
         return True
+
+    def _standardize_probability_columns(self, probs: pd.DataFrame, source: str = "probability matrix") -> pd.DataFrame:
+        """Ensure probability DataFrames align with self.regime_labels."""
+        target_cols = list(self.regime_labels)
+        probs = probs.copy()
+        if probs.shape[1] != len(target_cols):
+            raise ValueError(
+                f"{source} has {probs.shape[1]} columns, expected {len(target_cols)} based on regime labels {target_cols}"
+            )
+        current_cols = list(probs.columns)
+        if current_cols == target_cols:
+            return probs
+        if set(current_cols) == set(target_cols):
+            return probs[target_cols]
+        probs.columns = target_cols
+        return probs
 
     def _calculate_prediction_weights(self, hmm_probs, lstm_probs):
         """Calculate weights based on prediction confidence and consistency"""
@@ -439,12 +445,12 @@ class MarketRegimeDetector:
         common_cols = lstm_valid.columns.intersection(hmm_valid.columns)
         lstm_valid = lstm_valid[common_cols]
         hmm_valid = hmm_valid[common_cols]
-        # Normalize probabilities
-        lstm_valid = lstm_valid.div(lstm_valid.sum(axis=1), axis=0).fillna(0)
-        hmm_valid = hmm_valid.div(hmm_valid.sum(axis=1), axis=0).fillna(0)
-        # Calculate robust weights
-        weights = self._calculate_prediction_weights(hmm_valid, lstm_valid)
-        combined_probs = weights[0] * hmm_valid + weights[1] * lstm_valid
+        # Normalize probabilities (paper assumes proper distributions)
+        lstm_valid = lstm_valid.div(lstm_valid.sum(axis=1), axis=0)
+        hmm_valid = hmm_valid.div(hmm_valid.sum(axis=1), axis=0)
+
+        # Entropy–confidence Bayesian fusion (eq. 9–14)
+        combined_probs = self._bayesian_model_averaging(hmm_valid, lstm_valid).loc[hmm_valid.index]
         # Defensive: ensure no NaNs
         if combined_probs.isnull().any().any():
             raise ValueError("NaNs in combined_probs after fusion")
@@ -462,12 +468,67 @@ class MarketRegimeDetector:
             return final_regimes.map(reverse_mapping)
 
     def _bayesian_model_averaging(self, hmm_probs: pd.DataFrame, lstm_probs: pd.DataFrame) -> pd.DataFrame:
-        """Proper Bayesian Model Averaging with evidence weighting"""
-        hmm_log_evidence = np.sum(np.log(hmm_probs.max(axis=1) + 1e-8))
-        lstm_log_evidence = np.sum(np.log(lstm_probs.max(axis=1) + 1e-8))
-        evidence_array = np.array([hmm_log_evidence, lstm_log_evidence])
-        weights = np.exp(evidence_array) / np.sum(np.exp(evidence_array))
-        return weights[0] * hmm_probs + weights[1] * lstm_probs
+        eps = 1e-8
+        fused = hmm_probs.copy()
+        idx = hmm_probs.index.intersection(lstm_probs.index)
+        cols = hmm_probs.columns.intersection(lstm_probs.columns)
+        if len(idx) == 0 or len(cols) == 0:
+            self._last_fusion_weights = None
+            return fused
+
+        H = hmm_probs.loc[idx, cols].copy()
+        L = lstm_probs.loc[idx, cols].copy()
+
+        mode = getattr(self.config, "fusion_mode", "entropy") or "entropy"
+        mode = mode.lower()
+        if mode == "poe":
+            alpha = getattr(self.config, "poe_alpha", 1.0)
+            beta = getattr(self.config, "poe_beta", 1.0)
+            HF = H.clip(eps, 1.0) ** alpha * L.clip(eps, 1.0) ** beta
+            HF = HF.div(HF.sum(axis=1).replace(0, np.nan), axis=0).fillna(1.0 / len(cols))
+            fused.loc[idx, cols] = HF
+            self._last_fusion_weights = None
+            return fused
+
+        # Normalize rows to probabilities with uniform fallback
+        H = H.div(H.sum(axis=1).replace(0, np.nan), axis=0).fillna(1.0 / len(cols))
+        L = L.div(L.sum(axis=1).replace(0, np.nan), axis=0).fillna(1.0 / len(cols))
+
+        # Clip for stability
+        Hc = H.clip(eps, 1.0)
+        Lc = L.clip(eps, 1.0)
+
+        # Confidence and entropy
+        C_H = Hc.max(axis=1)
+        C_L = Lc.max(axis=1)
+        Ent_H = -(Hc * np.log(Hc)).sum(axis=1).clip(lower=0.02)
+        Ent_L = -(Lc * np.log(Lc)).sum(axis=1).clip(lower=0.02)
+
+        # Scores and weights
+        S_H = C_H / Ent_H
+        S_L = C_L / Ent_L
+        w_H = (S_H / (S_H + S_L + eps)).clip(0.05, 0.95)
+        w_L = 1.0 - w_H
+        self._last_fusion_weights = w_H
+
+        wH_mat = pd.DataFrame(
+            np.repeat(w_H.values[:, None], len(cols), axis=1),
+            index=idx,
+            columns=cols,
+        )
+        wL_mat = pd.DataFrame(
+            np.repeat(w_L.values[:, None], len(cols), axis=1),
+            index=idx,
+            columns=cols,
+        )
+
+        fused_local = wH_mat * H + wL_mat * L
+        fused.loc[idx, cols] = fused_local
+        return fused
+
+    def get_last_fusion_weights(self) -> Optional[pd.Series]:
+        """Return the most recent per-timestep HMM weights used for fusion."""
+        return getattr(self, "_last_fusion_weights", None)
 
     def get_transition_matrix(self) -> pd.DataFrame:
         """Return transition probability matrix"""
@@ -628,8 +689,6 @@ class MarketRegimeDetector:
             print('[HMM PREDICT_PROBA] Any NaNs in predict_proba:', np.isnan(hmm_probs).any())
             print(f"[HMM PREDICT_PROBA] Raw HMM output shape: {hmm_probs.shape}")
             print(f"[HMM PREDICT_PROBA] Regime labels: {self.regime_labels}")
-            # Always use self.regime_labels for columns
-            columns = self.regime_labels
             # DEBUG: Check dimensions and fix index mismatch
             print(f"DEBUG: returns.index length: {len(returns.index)}")
             print(f"DEBUG: hmm_probs shape: {hmm_probs.shape}")
@@ -639,15 +698,17 @@ class MarketRegimeDetector:
                 safe_index = returns.iloc[-hmm_probs.shape[0]:].index if len(returns.index) >= hmm_probs.shape[0] else returns.index
             else:
                 safe_index = returns.index
-            # Always use generic regime column names for fusion
-            generic_labels = [f"regime_{i}" for i in range(len(self.regime_labels))]
-            if hmm_probs.shape[1] == 0 or len(generic_labels) == 0:
+            if hmm_probs.shape[1] == 0 or len(self.regime_labels) == 0:
                 # Defensive: create a DataFrame of zeros if HMM returns no probabilities
                 print("[FORCE FIX] HMM returned no probabilities, creating zero-prob DataFrame.")
-                hmm_probs_df = pd.DataFrame(0, index=safe_index, columns=generic_labels)
+                hmm_probs_df = pd.DataFrame(0, index=safe_index, columns=self.regime_labels)
+            elif hmm_probs.shape[1] != len(self.regime_labels):
+                raise ValueError(
+                    f"HMM predict_proba returned {hmm_probs.shape[1]} columns but detector expects {len(self.regime_labels)} regime labels."
+                )
             else:
-                hmm_probs_df = pd.DataFrame(hmm_probs, index=safe_index, columns=generic_labels)
-            print(f"[HMM PREDICT_PROBA] HMM probs DataFrame columns (generic): {hmm_probs_df.columns}")
+                hmm_probs_df = pd.DataFrame(hmm_probs, index=safe_index, columns=self.regime_labels)
+            print(f"[HMM PREDICT_PROBA] HMM probs DataFrame columns: {hmm_probs_df.columns}")
             print(f"[HMM PREDICT_PROBA] HMM probs index: {hmm_probs_df.index}")
             print(f"[HMM PREDICT_PROBA] HMM probs_df shape: {hmm_probs_df.shape}")
             if hmm_probs_df.shape[1] == 0:
@@ -657,12 +718,15 @@ class MarketRegimeDetector:
             if self.config.use_deep_learning and self.lstm_model is not None:
                 try:
                     lstm_probs_df = self.lstm_model.predict_proba(returns)
+                    lstm_probs_df = self._standardize_probability_columns(lstm_probs_df, "LSTM probabilities")
                     # Bayesian model averaging
                     probs_df = self._bayesian_model_averaging(hmm_probs_df, lstm_probs_df)
                 except Exception as e:
                     logger.warning(f"LSTM prediction failed, using HMM only: {str(e)}")
+                    self._last_fusion_weights = None
                     probs_df = hmm_probs_df
             else:
+                self._last_fusion_weights = None
                 probs_df = hmm_probs_df
             prediction_time = time.time() - start_time
             self._performance.prediction_times.append(prediction_time)
@@ -704,7 +768,7 @@ class MarketRegimeDetector:
             current_probs = probs.iloc[-1]
             
             # Get current regime and confidence
-            current_regime = self.regime_labels[current_probs.argmax()]
+            current_regime = current_probs.idxmax()
             confidence = current_probs.max()
             
             # Check confidence threshold
@@ -845,6 +909,7 @@ class MarketRegimeDetector:
         # Clear history and performance metrics
         self._regime_history = pd.DataFrame(columns=['regime', 'confidence', 'transition_probability'])
         self._performance = PerformanceMetrics()
+        self._last_fusion_weights = None
         
         # Reset state
         self._current_regime = None
@@ -974,6 +1039,7 @@ class MarketRegimeDetector:
             # Always require features to be a DataFrame for hybrid fusion
             trimmed_features = features.loc[trimmed_returns.index]
             lstm_probs = self.lstm_model.predict_proba(trimmed_returns)
+            lstm_probs = self._standardize_probability_columns(lstm_probs, "LSTM probabilities (ensemble)")
             hmm_probs_full = self.predict_proba(trimmed_features)
             # Robust intersection of indices
             valid_idx = hmm_probs_full.index.intersection(lstm_probs.index)
@@ -994,23 +1060,15 @@ class MarketRegimeDetector:
                 print('hmm_probs_full isnull sum:', hmm_probs_full.isnull().sum())
                 print('lstm_probs isnull sum:', lstm_probs.isnull().sum())
                 raise ValueError("No valid rows after robust intersection and filtering for hybrid regime fusion.")
-            hmm_probs = hmm_probs.loc[:, [col for col in self.regime_labels if col in hmm_probs.columns]]
-            # Map LSTM regime columns to HMM regime labels if needed
-            lstm_labels = list(lstm_probs.columns)
-            hmm_labels = list(self.regime_labels)
-            if all(l.startswith('regime_') for l in lstm_labels) and len(lstm_labels) == len(hmm_labels):
-                mapping = {lstm_label: hmm_label for lstm_label, hmm_label in zip(lstm_labels, hmm_labels)}
-                lstm_probs = lstm_probs.rename(columns=mapping)
-            # Find common columns
-            common_cols = lstm_probs.columns.intersection(hmm_probs.columns)
-            lstm_probs = lstm_probs[common_cols]
-            hmm_probs = hmm_probs[common_cols]
-            # Normalize
-            lstm_probs = lstm_probs.div(lstm_probs.sum(axis=1), axis=0).fillna(0)
-            hmm_probs = hmm_probs.div(hmm_probs.sum(axis=1), axis=0).fillna(0)
-            # Calculate weights
-            weights = self._calculate_prediction_weights(hmm_probs, lstm_probs)
-            combined_probs = weights[0] * hmm_probs + weights[1] * lstm_probs
+            # Ensure both probability sets share the same regime labels/order
+            hmm_probs = hmm_probs[self.regime_labels]
+            lstm_probs = lstm_probs[self.regime_labels]
+            # Normalize to probabilities
+            lstm_probs = lstm_probs.div(lstm_probs.sum(axis=1), axis=0)
+            hmm_probs = hmm_probs.div(hmm_probs.sum(axis=1), axis=0)
+
+            # Entropy–confidence Bayesian fusion (same as Section 3.3)
+            combined_probs = self._bayesian_model_averaging(hmm_probs, lstm_probs)
             print(f"[DIAGNOSTIC] Returning combined_probs shape: {combined_probs.shape}, columns: {combined_probs.columns}")
             return combined_probs
         else:
