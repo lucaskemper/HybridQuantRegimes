@@ -34,7 +34,7 @@ class MonteCarlo:
     def simulate(self, market_data: Dict[str, pd.DataFrame]) -> Dict:
         returns = market_data["returns"]
         if returns.empty:
-            raise ValueError("bro where's the data")
+            raise ValueError("bro where's the data ;)")
 
         log_returns = np.log1p(returns).dropna()
         n_assets = log_returns.shape[1]
