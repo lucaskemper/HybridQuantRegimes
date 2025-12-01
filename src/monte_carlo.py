@@ -160,7 +160,7 @@ class MonteCarlo:
 
         z = np.random.standard_t(df, (n_sims, n_days, n_assets))
         z /= np.sqrt(df / (df-2))
-        z_corr = z @ L.T
+        z_corr = z @ L.T  # correlate the shocks
 
         out = np.zeros((n_sims, n_days, n_assets))
         for s in range(n_sims):
@@ -174,7 +174,7 @@ class MonteCarlo:
                     out[s,:,a] = mu[a] + vol * z_corr[s,:,a]
         return out
 
-    # regime switching with per-regime corr
+    # regime switching with per-regime corr (completed based on paper's 3.7)
     def _regime_switching(self, logret, regimes):
         regimes = regimes.reindex(logret.index).ffill().dropna()
         logret = logret.loc[regimes.index]
@@ -185,4 +185,77 @@ class MonteCarlo:
         mu_reg = []
         sigma_reg = []
         L_reg = []
-       
+        for k in range(n_regimes):
+            mask = (idx == k)
+            reg_data = logret.iloc[mask]  # use iloc for efficiency
+            mu_reg.append(reg_data.mean().values)
+            sigma_reg.append(reg_data.std().values)
+            corr = reg_data.corr().values + 1e-8 * np.eye(n_assets)  # regularize
+            L_reg.append(np.linalg.cholesky(corr))
+
+        # transition matrix P (rows: from i to j)
+        trans = np.zeros((n_regimes, n_regimes))
+        for i in range(len(idx) - 1):
+            trans[idx[i], idx[i + 1]] += 1
+        trans /= np.maximum(trans.sum(axis=1, keepdims=True), 1e-8)  # normalize rows
+
+        # initial regime probabilities (empirical frequency)
+        initial_p = np.bincount(idx) / len(idx)
+
+        # simulate regime paths (vectorized where possible)
+        n_sims, n_days = self.cfg.n_sims, self.cfg.n_days
+        sim_reg = np.zeros((n_sims, n_days), dtype=int)
+        sim_reg[:, 0] = np.random.choice(n_regimes, size=n_sims, p=initial_p)
+        cum_trans = np.cumsum(trans, axis=1)
+        for t in range(1, n_days):
+            u = np.random.rand(n_sims)
+            sim_reg[:, t] = (u[:, None] < cum_trans[sim_reg[:, t - 1]]).sum(axis=1)
+
+        # generate log returns
+        mu_reg = np.array(mu_reg)  # (n_regimes, n_assets)
+        sigma_reg = np.array(sigma_reg)
+        L_reg = np.array(L_reg)  # (n_regimes, n_assets, n_assets)
+
+        z = np.random.randn(n_sims, n_days, n_assets)
+        out = np.zeros((n_sims, n_days, n_assets))
+        for s in range(n_sims):
+            for t in range(n_days):
+                k = sim_reg[s, t]
+                correlated = L_reg[k] @ z[s, t]
+                scaled = sigma_reg[k] * correlated
+                out[s, t] = mu_reg[k] - 0.5 * (sigma_reg[k] ** 2) + scaled
+
+        return out
+
+    # basic geometric brownian motion (constant params)
+    def _gbm(self, logret):
+        mu = logret.mean().values
+        sigma = logret.std().values
+        corr = logret.corr().values + 1e-8 * np.eye(logret.shape[1])
+        L = np.linalg.cholesky(corr)
+
+        n_sims, n_days, n_assets = self.cfg.n_sims, self.cfg.n_days, logret.shape[1]
+        z = np.random.randn(n_sims, n_days, n_assets)
+
+        correlated = np.einsum('ijk,kj->ij', z, L)  # vectorized correlate
+        scaled = sigma * correlated  # broadcast sigma
+        out = mu - 0.5 * (sigma ** 2) + scaled  # broadcast mu and variance adj
+
+        return out
+
+    # validate sims vs historical (moment matching)
+    def _validate(self, sim_log, hist_log):
+        # flatten sims to (n_sims * n_days, n_assets)
+        sim_flat = sim_log.reshape(-1, sim_log.shape[-1])
+        sim_mean = np.mean(sim_flat, axis=0)
+        hist_mean = hist_log.mean().values
+        sim_std = np.std(sim_flat, axis=0)
+        hist_std = hist_log.std().values
+        sim_corr = pd.DataFrame(sim_flat).corr().values
+        hist_corr = hist_log.corr().values
+
+        return {
+            'mean_diff': float(np.abs(sim_mean - hist_mean).mean()),
+            'std_diff': float(np.abs(sim_std - hist_std).mean()),
+            'corr_diff': float(np.abs(sim_corr - hist_corr).mean()),
+        }
